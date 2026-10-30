@@ -75,6 +75,12 @@ interface Command2PanelProps {
   availableVersions: string[];
   totalLoadedTrades: number;
   onSelectTradeForChart: (analysis: TradeMilestoneAnalysis) => void;
+  batchProgress?: {
+    currentBatch: number;
+    totalBatches: number;
+    processedTrades: number;
+    totalTrades: number;
+  } | null;
 }
 
 export const Command2Panel: React.FC<Command2PanelProps> = ({
@@ -85,6 +91,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   availableVersions,
   totalLoadedTrades,
   onSelectTradeForChart,
+  batchProgress,
 }) => {
   const [viewMode, setViewMode] = useState<'individual' | 'breakdown' | 'profit_trades' | 'loss_trades' | 'ticks_speed' | 'groups' | 'incomplete'>('individual');
   const [versionPreset, setVersionPreset] = useState<'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all' | 'custom'>('ultra_uber');
@@ -437,7 +444,62 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   }, [rawProfitTrades, searchTerm, profitVersionFilter]);
 
   return (
-    <div className="space-y-6 font-sans">
+    <div className="space-y-6 font-sans relative">
+      {/* Non-Interactive Progress Backdrop Overlay during Batch Streaming */}
+      {(batchProgress || isRunning) && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex flex-col items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-md w-full shadow-2xl text-center relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 animate-pulse" />
+            <div className="w-16 h-16 rounded-2xl bg-indigo-600/20 text-indigo-400 flex items-center justify-center mx-auto mb-4 border border-indigo-500/30">
+              <Activity className="w-8 h-8 animate-spin text-indigo-400" />
+            </div>
+            
+            <h3 className="text-xl font-bold text-white mb-2">
+              Evaluating Trades in Chunks
+            </h3>
+            
+            <p className="text-xs text-slate-400 mb-6">
+              Processing candles in sequential non-blocking batch requests to ensure server stability.
+            </p>
+
+            {batchProgress ? (
+              <div className="space-y-4">
+                <div className="flex justify-between items-center text-xs font-semibold">
+                  <span className="text-indigo-400">
+                    Batch {batchProgress.currentBatch} of {batchProgress.totalBatches}
+                  </span>
+                  <span className="text-emerald-400">
+                    {Math.round((batchProgress.processedTrades / (batchProgress.totalTrades || 1)) * 100)}% Complete
+                  </span>
+                </div>
+
+                <div className="w-full bg-slate-800 rounded-full h-3 overflow-hidden p-0.5 border border-slate-700">
+                  <div 
+                    className="bg-gradient-to-r from-indigo-500 via-purple-500 to-emerald-400 h-full rounded-full transition-all duration-300 shadow-sm"
+                    style={{ width: `${Math.min(100, Math.max(2, (batchProgress.processedTrades / (batchProgress.totalTrades || 1)) * 100))}%` }}
+                  />
+                </div>
+
+                <div className="flex justify-between items-center text-xs text-slate-400 pt-1">
+                  <span>Processed: <strong className="text-white">{batchProgress.processedTrades}</strong> / {batchProgress.totalTrades}</span>
+                  <span className="text-slate-500 italic">Updating Dashboard Live...</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center gap-3 text-xs text-indigo-400 font-medium py-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-indigo-400" />
+                Preparing trade batch execution...
+              </div>
+            )}
+
+            <div className="mt-6 pt-4 border-t border-slate-800 text-[11px] text-slate-500 flex items-center justify-center gap-1.5">
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Page locked during processing to guarantee intermittent analytics state.</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>

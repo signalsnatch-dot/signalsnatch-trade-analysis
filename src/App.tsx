@@ -97,26 +97,94 @@ export default function App() {
     }
   };
 
-  // Run Command 2
-  const handleRunCommand2 = async (options: { versionFilters: string[]; useAllVersions: boolean; volumeTradesOnly?: boolean }) => {
+  const [cmd2Progress, setCmd2Progress] = useState<{
+    currentBatch: number;
+    totalBatches: number;
+    processedTrades: number;
+    totalTrades: number;
+  } | null>(null);
+
+  // Run Command 2 in non-blocking streaming batches with live intermittent dashboard updates
+  const handleRunCommand2 = async (options: {
+    versionFilters: string[];
+    useAllVersions: boolean;
+    volumeTradesOnly?: boolean;
+  }) => {
     setIsCmd2Running(true);
     try {
-      const res = await fetch('/api/command2/run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          versionFilters: options.versionFilters,
-          useAllVersions: options.useAllVersions,
-          volumeTradesOnly: options.volumeTradesOnly !== false,
-        }),
+      let tradesToProcess: TradeSignal[] = Command2Service.deduplicateTrades(trades);
+      if (options.volumeTradesOnly !== false) {
+        tradesToProcess = tradesToProcess.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
+      }
+      const filteredTrades = tradesToProcess.filter((t) =>
+        Command2Service.matchesVersion(t.version, options.versionFilters, options.useAllVersions)
+      );
+
+      if (filteredTrades.length === 0) {
+        setCmd2Progress(null);
+        setIsCmd2Running(false);
+        return;
+      }
+
+      // Small batch size of 25 trades per API call for fast intermittent updates
+      const BATCH_SIZE = 25;
+      const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
+      const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
+
+      setCmd2Progress({
+        currentBatch: 0,
+        totalBatches,
+        processedTrades: 0,
+        totalTrades: filteredTrades.length,
       });
-      const data = await res.json();
-      if (data.result) {
-        setCmd2Result(data.result);
+
+      for (let b = 0; b < totalBatches; b++) {
+        const chunk = filteredTrades.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+
+        const res = await fetch('/api/command2/run-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tradesChunk: chunk,
+            batchIndex: b,
+            totalBatches,
+            versionFilters: options.versionFilters,
+            useAllVersions: options.useAllVersions,
+            volumeTradesOnly: options.volumeTradesOnly !== false,
+          }),
+        });
+
+        const data = await res.json();
+        if (Array.isArray(data.evaluatedAnalyses)) {
+          accumulatedAnalyses.push(...data.evaluatedAnalyses);
+
+          const activeFiltersApplied = options.versionFilters.length > 0
+            ? `Versions: ${options.versionFilters.join(', ')}`
+            : `Default (Ultra, Uber)`;
+
+          const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
+          const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+
+          // Update state intermittently so dashboard analytics update live
+          setCmd2Result({
+            analyses: [...accumulatedAnalyses],
+            incompleteTrades: [],
+            groups5Min,
+            summary,
+          });
+
+          setCmd2Progress({
+            currentBatch: b + 1,
+            totalBatches,
+            processedTrades: accumulatedAnalyses.length,
+            totalTrades: filteredTrades.length,
+          });
+        }
       }
     } catch (err) {
-      console.error('Error running Command 2:', err);
+      console.error('Error running Command 2 in batches:', err);
     } finally {
+      setCmd2Progress(null);
       setIsCmd2Running(false);
     }
   };
@@ -400,6 +468,7 @@ export default function App() {
               availableVersions={availableVersions}
               totalLoadedTrades={trades.length}
               onSelectTradeForChart={(analysis) => setChartAnalysis(analysis)}
+              batchProgress={cmd2Progress}
             />
           </div>
         )}

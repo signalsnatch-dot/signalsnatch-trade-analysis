@@ -477,6 +477,47 @@ async function startServer() {
     }
   });
 
+  // 7b. Run Command 2 Batch (Fast incremental evaluation for frontend streaming batches)
+  app.post('/api/command2/run-batch', async (req: Request, res: Response) => {
+    const reqStartMs = Date.now();
+    try {
+      const { tradesChunk, batchIndex, totalBatches, versionFilters, useAllVersions, volumeTradesOnly } = req.body;
+
+      if (!Array.isArray(tradesChunk) || tradesChunk.length === 0) {
+        return res.status(400).json({ error: 'No trades in chunk to evaluate' });
+      }
+
+      const apiService = getApiService();
+      const cmd2 = new Command2Service({
+        apiService,
+        marketDataDir: MARKET_DATA_DIR,
+        reportsDir: REPORTS_DIR,
+      });
+
+      const evaluatedAnalyses = await cmd2.evaluateTradesBatch(tradesChunk, {
+        versionFilters: Array.isArray(versionFilters) ? versionFilters : ['ULTRA', 'UBER'],
+        useAllVersions: Boolean(useAllVersions),
+        volumeTradesOnly: volumeTradesOnly !== false,
+      });
+
+      const elapsedMs = Date.now() - reqStartMs;
+      console.log(`[API /command2/run-batch] Batch ${(batchIndex || 0) + 1}/${totalBatches || 1} completed (${tradesChunk.length} trades) in ${elapsedMs}ms`);
+
+      res.json({
+        success: true,
+        batchIndex,
+        totalBatches,
+        evaluatedAnalyses,
+        count: evaluatedAnalyses.length,
+      });
+    } catch (err: unknown) {
+      const elapsedMs = Date.now() - reqStartMs;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[API /command2/run-batch ERROR] (${elapsedMs}ms): ${errMsg}`);
+      res.status(500).json({ error: errMsg });
+    }
+  });
+
   // 8. Candles with Indicators for Charting
   app.get('/api/candles', async (req: Request, res: Response) => {
     try {

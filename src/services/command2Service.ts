@@ -171,6 +171,11 @@ export class Command2Service {
   private marketDataDir: string;
   private reportsDir: string;
 
+  // In-memory caches for 1-minute and daily candle datasets to eliminate disk/network overhead during batch runs
+  private candleMemoryCache = new Map<string, Candle[]>();
+  private dailyCandleMemoryCache = new Map<string, Candle[]>();
+  private candleRangeMemoryCache = new Map<string, Candle[]>();
+
   constructor(options?: {
     apiService?: UpstoxApiService;
     marketDataDir?: string;
@@ -201,15 +206,20 @@ export class Command2Service {
   }
 
   /**
-   * Load 1-minute candles for an instrument on a given date (from CSV cache first to support expired contracts!)
+   * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
    */
   async getCandlesForDay(instrumentKey: string, dateStr: string): Promise<Candle[]> {
+    const cacheKey = `${instrumentKey}_${dateStr}`;
+    if (this.candleMemoryCache.has(cacheKey)) {
+      return this.candleMemoryCache.get(cacheKey)!;
+    }
+
     const safeName = Command1Service.safeFilename(instrumentKey);
     const csvPath = path.join(this.marketDataDir, dateStr, `${safeName}.csv`);
     const todayIST = UpstoxApiService.toISTDate(Date.now());
     const isToday = dateStr === todayIST;
 
-    // For today's live date, ALWAYS attempt fetching fresh 1-minute candles from Upstox API first to ensure live candle data is fully up to date!
+    // For today's live date, attempt fetching fresh 1-minute candles from Upstox API first
     if (isToday) {
       try {
         const liveCandles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
@@ -219,17 +229,19 @@ export class Command2Service {
             fs.mkdirSync(targetDir, { recursive: true });
           }
           UpstoxApiService.saveCandlesToCsv(liveCandles, csvPath);
+          this.candleMemoryCache.set(cacheKey, liveCandles);
           return liveCandles;
         }
       } catch {
-        // Fallback to local CSV cache if API is offline or returns empty
+        // Fallback to local CSV cache if API is offline
       }
     }
 
-    // 1. Try reading from CSV on disk (supports expired contracts or historical dates!)
+    // 1. Try reading from CSV on disk (supports expired contracts or historical dates)
     if (fs.existsSync(csvPath)) {
       const candles = UpstoxApiService.loadCandlesFromCsv(csvPath);
-      if (candles.length > 0) return candles;
+      this.candleMemoryCache.set(cacheKey, candles);
+      return candles;
     }
 
     // 2. Fallback to API directly for historical dates
@@ -242,8 +254,48 @@ export class Command2Service {
         }
         UpstoxApiService.saveCandlesToCsv(candles, csvPath);
       }
+      this.candleMemoryCache.set(cacheKey, candles);
       return candles;
     } catch {
+      this.candleMemoryCache.set(cacheKey, []);
+      return [];
+    }
+  }
+
+  /**
+   * Cached multi-day daily candles range
+   */
+  async fetchDailyCandlesCached(instrument: string, fromDate: string, toDate: string): Promise<Candle[]> {
+    const key = `daily_${instrument}_${fromDate}_${toDate}`;
+    if (this.dailyCandleMemoryCache.has(key)) {
+      return this.dailyCandleMemoryCache.get(key)!;
+    }
+    try {
+      const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
+      const safe = res || [];
+      this.dailyCandleMemoryCache.set(key, safe);
+      return safe;
+    } catch {
+      this.dailyCandleMemoryCache.set(key, []);
+      return [];
+    }
+  }
+
+  /**
+   * Cached 1-min multi-day range candles
+   */
+  async fetchCandleRangeCached(instrument: string, fromDate: string, toDate: string): Promise<Candle[]> {
+    const key = `range_${instrument}_${fromDate}_${toDate}`;
+    if (this.candleRangeMemoryCache.has(key)) {
+      return this.candleRangeMemoryCache.get(key)!;
+    }
+    try {
+      const res = await this.apiService.fetchCandleRange(instrument, fromDate, toDate);
+      const safe = res || [];
+      this.candleRangeMemoryCache.set(key, safe);
+      return safe;
+    } catch {
+      this.candleRangeMemoryCache.set(key, []);
       return [];
     }
   }
@@ -1343,6 +1395,22 @@ export class Command2Service {
       }
     }
     return unique;
+  }
+
+  /**
+   * Evaluate a single chunk/batch of trade signals in memory using cached candles
+   */
+  async evaluateTradesBatch(
+    tradesBatch: TradeSignal[],
+    _options?: Command2Options
+  ): Promise<TradeMilestoneAnalysis[]> {
+    const results: TradeMilestoneAnalysis[] = [];
+    for (const trade of tradesBatch) {
+      if (!trade) continue;
+      const analysis = await this.evaluateTrade(trade);
+      results.push(analysis);
+    }
+    return results;
   }
 
   /**
