@@ -143,6 +143,10 @@ export interface Command2Summary {
     avgLossMultipleBeforeEntryReturn: number; // (averaged strictly over loss trades)
     avgMaxProfitMultiple: number; // Average profit multiple (averaged strictly over winning trades)
     avgProfitMultipleBeforeReturn: number; // Average profit multiple before touch on loss/entry (averaged strictly over winning trades)
+    maxProfitMultipleRecorded: number; // Absolute maximum profit multiple recorded across trades
+    avgEntryCrossCount: number; // Average times price crossed entry level
+    avgSlCrossCount: number; // Average times price crossed SL level
+    avgTpCrossCount: number; // Average times price crossed TP level
   };
   totalIncompleteTrades: number;
   totalGroupsCount: number;
@@ -1307,6 +1311,41 @@ export class Command2Service {
   }
 
   /**
+   * Deduplicate trade signals by instrument, timestamp, version, type, entry
+   */
+  static deduplicateTrades(trades: TradeSignal[]): TradeSignal[] {
+    const seen = new Set<string>();
+    const unique: TradeSignal[] = [];
+    for (const t of trades) {
+      if (!t) continue;
+      const key = `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(t);
+      }
+    }
+    return unique;
+  }
+
+  /**
+   * Deduplicate milestone analyses by trade key
+   */
+  static deduplicateAnalyses(analyses: TradeMilestoneAnalysis[]): TradeMilestoneAnalysis[] {
+    const seen = new Set<string>();
+    const unique: TradeMilestoneAnalysis[] = [];
+    for (const a of analyses) {
+      if (!a?.trade) continue;
+      const t = a.trade;
+      const key = `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push(a);
+      }
+    }
+    return unique;
+  }
+
+  /**
    * Execute Command 2 across a list of trades
    */
   async execute(
@@ -1318,12 +1357,15 @@ export class Command2Service {
     const useAll = options?.useAllVersions ?? false;
     const volumeOnly = options?.volumeTradesOnly !== false; // Default true: Filter only volume based trades
 
+    // 0. Deduplicate input trades upfront to avoid redundant evaluations and duplicate output!
+    const uniqueTrades = Command2Service.deduplicateTrades(trades);
+
     // 1. Filter only volume based trades from JSON (Requirement 4)
-    let processedInput = trades;
+    let processedInput = uniqueTrades;
     let filteredOutCount = 0;
     if (volumeOnly) {
-      processedInput = trades.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
-      filteredOutCount = trades.length - processedInput.length;
+      processedInput = uniqueTrades.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
+      filteredOutCount = uniqueTrades.length - processedInput.length;
     }
 
     // 2. Filter trades by version
@@ -1445,7 +1487,10 @@ export class Command2Service {
     const dayMap = new Map<string, TradeMilestoneAnalysis[]>();
     const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-    for (const a of analyses) {
+    // Deduplicate analyses upfront to guarantee zero duplicate calculations in summary and reports
+    const uniqueAnalyses = Command2Service.deduplicateAnalyses(analyses);
+
+    for (const a of uniqueAnalyses) {
       if (a.trade.status === 'cancelled') {
         cancelledTradesCount++;
       }
@@ -1660,13 +1705,25 @@ export class Command2Service {
     const avgTimeM2Formatted = countM2Achieved > 0 ? UpstoxApiService.formatDurationDaysHours(sumTimeM2 / countM2Achieved) : '0 days 0h 0m 0s';
     const avgM2Ticks = countM2Achieved > 0 ? parseFloat((sumTicksM2 / countM2Achieved).toFixed(2)) : 0;
 
+    // Crossing averages and peak profit recorded
+    const allProfits = uniqueAnalyses.map((a) => a.drawdown?.maxProfitMultiple || 0);
+    const maxProfitMultipleRecorded = allProfits.length > 0 ? parseFloat(Math.max(...allProfits).toFixed(2)) : 0;
+
+    const totalAnalyzed = uniqueAnalyses.length;
+    const sumEntryCross = uniqueAnalyses.reduce((acc, a) => acc + (a.drawdown?.entryCrossCount || 0), 0);
+    const sumSlCross = uniqueAnalyses.reduce((acc, a) => acc + (a.drawdown?.slCrossCount || 0), 0);
+    const sumTpCross = uniqueAnalyses.reduce((acc, a) => acc + (a.drawdown?.tpCrossCount || 0), 0);
+    const avgEntryCrossCount = totalAnalyzed > 0 ? parseFloat((sumEntryCross / totalAnalyzed).toFixed(1)) : 0;
+    const avgSlCrossCount = totalAnalyzed > 0 ? parseFloat((sumSlCross / totalAnalyzed).toFixed(1)) : 0;
+    const avgTpCrossCount = totalAnalyzed > 0 ? parseFloat((sumTpCross / totalAnalyzed).toFixed(1)) : 0;
+
     return {
-      totalTradesAnalyzed: analyses.length,
+      totalTradesAnalyzed: uniqueAnalyses.length,
       totalVolumeTradesFiltered: options?.totalVolumeTradesFiltered ?? 0,
       successCount: totalSuccessCount,
       lossCount: totalLossCount,
       cancelledTradesCount,
-      overallWinRatePercentage: analyses.length > 0 ? (totalSuccessCount / analyses.length) * 100 : 0,
+      overallWinRatePercentage: uniqueAnalyses.length > 0 ? (totalSuccessCount / uniqueAnalyses.length) * 100 : 0,
       uberSuccessRate: {
         totalUber,
         uberSuccessCount,
@@ -1684,16 +1741,16 @@ export class Command2Service {
         slCount: sl1Count,
         bothCount: both1Count,
         neitherCount: neither1Count,
-        tpPercentage: analyses.length > 0 ? (tp1Count / analyses.length) * 100 : 0,
-        slPercentage: analyses.length > 0 ? (sl1Count / analyses.length) * 100 : 0,
+        tpPercentage: uniqueAnalyses.length > 0 ? (tp1Count / uniqueAnalyses.length) * 100 : 0,
+        slPercentage: uniqueAnalyses.length > 0 ? (sl1Count / uniqueAnalyses.length) * 100 : 0,
       },
       m2Hits: {
         achievedSameDayCount: m2SameDay,
         achievedMultiDayCount: m2MultiDay,
         pendingCount: m2Pending,
-        sameDayPercentage: analyses.length > 0 ? (m2SameDay / analyses.length) * 100 : 0,
-        multiDayPercentage: analyses.length > 0 ? (m2MultiDay / analyses.length) * 100 : 0,
-        pendingPercentage: analyses.length > 0 ? (m2Pending / analyses.length) * 100 : 0,
+        sameDayPercentage: uniqueAnalyses.length > 0 ? (m2SameDay / uniqueAnalyses.length) * 100 : 0,
+        multiDayPercentage: uniqueAnalyses.length > 0 ? (m2MultiDay / uniqueAnalyses.length) * 100 : 0,
+        pendingPercentage: uniqueAnalyses.length > 0 ? (m2Pending / uniqueAnalyses.length) * 100 : 0,
       },
       averages: {
         avgCandlesToM1,
@@ -1707,6 +1764,10 @@ export class Command2Service {
         avgLossMultipleBeforeEntryReturn,
         avgMaxProfitMultiple,
         avgProfitMultipleBeforeReturn,
+        maxProfitMultipleRecorded,
+        avgEntryCrossCount,
+        avgSlCrossCount,
+        avgTpCrossCount,
       },
       totalIncompleteTrades: options?.incompleteTradesCount ?? 0,
       totalGroupsCount: 0,
@@ -1792,7 +1853,8 @@ export class Command2Service {
       return s;
     };
 
-    const rows = analyses.map((a) => {
+    const uniqueAnalyses = Command2Service.deduplicateAnalyses(analyses);
+    const rows = uniqueAnalyses.map((a) => {
       const t = a.trade;
       const m1 = a.milestone1;
       const m2 = a.milestone2;
@@ -1806,9 +1868,9 @@ export class Command2Service {
         t.type,
         t.status || 'active',
         t.status === 'cancelled' ? 'YES' : 'NO',
-        t.entry,
-        t.sl,
-        t.tp,
+        Number(t.entry || 0).toFixed(2),
+        Number(t.sl || 0).toFixed(2),
+        Number(t.tp || 0).toFixed(2),
         t.threshold,
         t.confidence ?? '',
         a.lotSizeUsed || 1,

@@ -1,5 +1,16 @@
 import React from 'react';
-import { Target, Clock, BarChart2, CheckCircle2, ShieldAlert, Award, TrendingDown } from 'lucide-react';
+import {
+  Target,
+  Clock,
+  BarChart2,
+  CheckCircle2,
+  ShieldAlert,
+  Award,
+  TrendingDown,
+  TrendingUp,
+  Activity,
+  Layers,
+} from 'lucide-react';
 import { Command2Summary } from '../services/command2Service.ts';
 
 interface KpiCardsProps {
@@ -28,35 +39,42 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ summary, totalLoadedTrades }
     totalGroupsCount,
   } = summary;
 
+  const peakMaxProfit = averages.maxProfitMultipleRecorded || averages.avgMaxProfitMultiple || 0;
+  const avgEntryCross = averages.avgEntryCrossCount ?? 0;
+  const avgSlCross = averages.avgSlCrossCount ?? 0;
+  const avgTpCross = averages.avgTpCrossCount ?? 0;
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
       {/* Card 1: Milestone 1 Resolution & Win Rate */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M1 Target Win Rate</span>
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-            <Award className="w-4 h-4" />
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm relative overflow-hidden flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M1 Target Win Rate</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <Award className="w-4 h-4" />
+            </div>
           </div>
-        </div>
-        <div className="flex items-baseline gap-2 mb-2">
-          <span className="text-2xl font-bold text-emerald-400">
-            {overallWinRatePercentage.toFixed(1)}%
-          </span>
-          <span className="text-xs text-slate-400">
-            ({successCount}/{totalTradesAnalyzed} won)
-          </span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl font-bold text-emerald-400 font-mono">
+              {overallWinRatePercentage.toFixed(1)}%
+            </span>
+            <span className="text-xs text-slate-400">
+              ({successCount}/{totalTradesAnalyzed} won)
+            </span>
+          </div>
         </div>
         <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
           <div className="flex justify-between items-center">
-            <span className="text-indigo-300 font-medium">Uber Target (SL):</span>
-            <span className="font-semibold text-white">
-              {uberSuccessRate.uberSuccessCount}/{uberSuccessRate.totalUber} ({uberSuccessRate.uberSuccessPercentage.toFixed(1)}%)
+            <span className="text-indigo-300 font-medium">Uber (SL win):</span>
+            <span className="font-semibold text-white font-mono">
+              {uberSuccessRate.uberSuccessPercentage.toFixed(1)}% ({uberSuccessRate.uberSuccessCount}/{uberSuccessRate.totalUber})
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-cyan-300 font-medium">Ultra Target (TP):</span>
-            <span className="font-semibold text-white">
-              {ultraSuccessRate.ultraSuccessCount}/{ultraSuccessRate.totalUltra} ({ultraSuccessRate.ultraSuccessPercentage.toFixed(1)}%)
+            <span className="text-cyan-300 font-medium">Ultra (TP win):</span>
+            <span className="font-semibold text-white font-mono">
+              {ultraSuccessRate.ultraSuccessPercentage.toFixed(1)}% ({ultraSuccessRate.ultraSuccessCount}/{ultraSuccessRate.totalUltra})
             </span>
           </div>
           {summary.cancelledTradesCount > 0 && (
@@ -69,23 +87,25 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ summary, totalLoadedTrades }
       </div>
 
       {/* Card 2: Speed & Ticks to Milestone 1 */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M1 Speed & Ticks</span>
-          <div className="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-            <Clock className="w-4 h-4" />
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M1 Speed & Ticks</span>
+            <div className="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+              <Clock className="w-4 h-4" />
+            </div>
           </div>
-        </div>
-        <div className="flex items-baseline gap-2 mb-2">
-          <span className="text-2xl font-bold text-cyan-400 font-mono">
-            {averages.avgM1Ticks.toFixed(1)}
-          </span>
-          <span className="text-xs text-slate-400">ticks (vol / thresh)</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl font-bold text-cyan-400 font-mono">
+              {averages.avgM1Ticks.toFixed(1)}
+            </span>
+            <span className="text-xs text-slate-400">ticks (vol / thresh)</span>
+          </div>
         </div>
         <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
           <div className="flex justify-between items-center">
-            <span className="text-slate-400">Avg Time from Entry:</span>
-            <span className="font-medium text-slate-200">
+            <span className="text-slate-400">Avg Time to M1:</span>
+            <span className="font-semibold text-slate-200 font-mono truncate max-w-[130px]" title={averages.avgTimeM1Formatted}>
               {averages.avgTimeM1Formatted}
             </span>
           </div>
@@ -95,46 +115,51 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ summary, totalLoadedTrades }
               {averages.avgCandlesToM1.toFixed(1)} candles
             </span>
           </div>
+          <div className="flex justify-between items-center text-slate-400">
+            <span>Hit M1 Count:</span>
+            <span className="font-semibold text-white font-mono">
+              {m1Hits.tpCount + m1Hits.slCount + m1Hits.bothCount}/{totalTradesAnalyzed}
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Card 3: Milestone 2 Resolution & Ticks */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M2 Resolution & Ticks</span>
-          <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
-            <CheckCircle2 className="w-4 h-4" />
+      {/* Card 3: Milestone 2 Resolution & Time */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">M2 Time & Follow-Through</span>
+            <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
           </div>
-        </div>
-        <div className="flex items-baseline justify-between gap-2 mb-2">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-2xl font-bold text-purple-400 font-mono">
-              {averages.avgM2Ticks.toFixed(1)}
-            </span>
-            <span className="text-xs text-slate-400">ticks</span>
-          </div>
-          <div className="text-right">
-            <span className="text-[11px] text-slate-400 block">Avg Time to M2:</span>
-            <span className="text-xs font-semibold text-purple-300 font-mono">
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-xl font-bold text-purple-400 font-mono truncate" title={averages.avgTimeM2Formatted}>
               {averages.avgTimeM2Formatted}
             </span>
           </div>
         </div>
         <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
           <div className="flex justify-between items-center">
-            <span className="text-emerald-400">Same-Day Hit:</span>
+            <span className="text-slate-400">Avg M2 Speed:</span>
+            <span className="font-semibold text-purple-300 font-mono">
+              {averages.avgM2Ticks.toFixed(1)} ticks
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-emerald-400">Same-Day M2:</span>
             <span className="font-semibold text-white font-mono">
               {m2Hits.achievedSameDayCount} ({m2Hits.sameDayPercentage.toFixed(1)}%)
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-indigo-400">Multi-Day Hit:</span>
+            <span className="text-indigo-400">Multi-Day M2:</span>
             <span className="font-semibold text-white font-mono">
               {m2Hits.achievedMultiDayCount} ({m2Hits.multiDayPercentage.toFixed(1)}%)
             </span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-amber-400">Pending / Next Days:</span>
+            <span className="text-amber-400">Pending M2:</span>
             <span className="font-semibold text-white font-mono">
               {m2Hits.pendingCount} ({m2Hits.pendingPercentage.toFixed(1)}%)
             </span>
@@ -142,41 +167,87 @@ export const KpiCards: React.FC<KpiCardsProps> = ({ summary, totalLoadedTrades }
         </div>
       </div>
 
-      {/* Card 4: Profit & Drawdown Excursion Metrics (Requirement 6) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Profit & Loss Multipliers</span>
-          <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-            <TrendingDown className="w-4 h-4" />
+      {/* Card 4: Max Profit & Risk Excursions */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Max Profit Multiple</span>
+            <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+              <TrendingUp className="w-4 h-4" />
+            </div>
           </div>
-        </div>
-        <div className="flex items-baseline gap-2 mb-2">
-          <span className="text-2xl font-bold text-emerald-400 font-mono">
-            {(averages.avgMaxProfitMultiple || 0).toFixed(1)}x
-          </span>
-          <span className="text-xs text-slate-400">profit /</span>
-          <span className="text-xl font-bold text-rose-400 font-mono">
-            {averages.avgMaxLossMultiple.toFixed(1)}x
-          </span>
-          <span className="text-xs text-slate-400">loss</span>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl font-bold text-emerald-400 font-mono">
+              {peakMaxProfit.toFixed(1)}x
+            </span>
+            <span className="text-xs text-slate-400">peak /</span>
+            <span className="text-xl font-bold text-emerald-300 font-mono">
+              {(averages.avgMaxProfitMultiple || 0).toFixed(1)}x
+            </span>
+            <span className="text-xs text-slate-400">avg</span>
+          </div>
         </div>
         <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
           <div className="flex justify-between items-center">
             <span className="text-slate-400">Profit Before Return:</span>
             <span className="font-semibold text-emerald-300 font-mono">
-              {(averages.avgProfitMultipleBeforeReturn || 0).toFixed(1)}x reward
+              {(averages.avgProfitMultipleBeforeReturn || 0).toFixed(1)}x
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-rose-400">Avg Max Loss:</span>
+            <span className="font-semibold text-rose-300 font-mono">
+              {averages.avgMaxLossMultiple.toFixed(1)}x risk
             </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-slate-400">Loss Before Return:</span>
             <span className="font-semibold text-amber-300 font-mono">
-              {averages.avgLossMultipleBeforeEntryReturn.toFixed(1)}x risk
+              {averages.avgLossMultipleBeforeEntryReturn.toFixed(1)}x
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Card 5: Average Level Crossings (Entry / SL / TP) */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm flex flex-col justify-between">
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Avg Level Crossings</span>
+            <div className="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+              <Activity className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline gap-2 mb-2">
+            <span className="text-2xl font-bold text-sky-400 font-mono">
+              {avgEntryCross.toFixed(1)}
+            </span>
+            <span className="text-xs text-slate-400">avg entry crossings</span>
+          </div>
+        </div>
+        <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+          <div className="flex justify-between items-center">
+            <span className="text-sky-300 font-medium">Avg Entry Crossings:</span>
+            <span className="font-semibold text-white font-mono">
+              {avgEntryCross.toFixed(1)}x
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-rose-400 font-medium">Avg SL Crossings:</span>
+            <span className="font-semibold text-white font-mono">
+              {avgSlCross.toFixed(1)}x
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-emerald-400 font-medium">Avg TP Crossings:</span>
+            <span className="font-semibold text-white font-mono">
+              {avgTpCross.toFixed(1)}x
             </span>
           </div>
           {summary.totalIncompleteTrades > 0 && (
             <div className="flex justify-between items-center text-amber-400 font-semibold pt-1 border-t border-slate-800/40">
-              <span>Excluded Incomplete:</span>
-              <span className="font-mono">{summary.totalIncompleteTrades} trades (no CSV)</span>
+              <span>Missing CSV:</span>
+              <span className="font-mono">{summary.totalIncompleteTrades} trades</span>
             </div>
           )}
         </div>

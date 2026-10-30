@@ -365,6 +365,9 @@ async function startServer() {
         }
       }
 
+      // Deduplicate signals upfront across files to eliminate duplicate trades
+      tradesToProcess = Command2Service.deduplicateTrades(tradesToProcess);
+
       if (tradesToProcess.length === 0) {
         return res.status(400).json({ error: 'No trades available to process' });
       }

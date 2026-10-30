@@ -13,6 +13,11 @@ import {
   BarChart2,
   Eye,
   Layers,
+  Download,
+  Ban,
+  Award,
+  Clock,
+  Activity,
 } from 'lucide-react';
 import { TradeSignal, TradeMilestoneAnalysis } from '../types/trade.ts';
 import { UpstoxApiService } from '../services/upstoxApi.ts';
@@ -20,8 +25,41 @@ import { getInstrumentConfig } from '../config/instrumentConfig.ts';
 import { EnhancedFilterService } from '../services/enhancedFilterService.ts';
 import { EnhancedFilterBadge } from './EnhancedFilterBadge.tsx';
 import { TradeNoteEditor } from './TradeNoteEditor.tsx';
+import { TradeNotesService } from '../services/tradeNotesService.ts';
 import { HighConfluenceAnalyticsCard } from './HighConfluenceAnalyticsCard.tsx';
 import { EnhancedRulesFilterControls } from './EnhancedRulesFilterControls.tsx';
+import { VersionFilterControl, VersionFilterMode } from './VersionFilterControl.tsx';
+
+// Helper to deduplicate signals by unique trade signature
+export const deduplicateLiveTrades = (trades: TradeSignal[]): TradeSignal[] => {
+  const seen = new Set<string>();
+  const out: TradeSignal[] = [];
+  for (const t of trades) {
+    if (!t) continue;
+    const sig = `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`;
+    if (!seen.has(sig)) {
+      seen.add(sig);
+      out.push(t);
+    }
+  }
+  return out;
+};
+
+// Helper to deduplicate milestone analyses by unique trade signature
+export const deduplicateLiveAnalyses = (analysesList: TradeMilestoneAnalysis[]): TradeMilestoneAnalysis[] => {
+  const seen = new Set<string>();
+  const out: TradeMilestoneAnalysis[] = [];
+  for (const a of analysesList) {
+    if (!a?.trade) continue;
+    const t = a.trade;
+    const sig = `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`;
+    if (!seen.has(sig)) {
+      seen.add(sig);
+      out.push(a);
+    }
+  }
+  return out;
+};
 
 interface LiveTrackerPanelProps {
   onOpenChart: (analysis: TradeMilestoneAnalysis) => void;
@@ -50,21 +88,26 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   const [batchCandleRefreshStatus, setBatchCandleRefreshStatus] = useState<string | null>(null);
   const batchCandleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Raw & Processed data (filter initialTrades to todayIST only to prevent Oct 27 flash)
+  // Raw & Processed data (filter initialTrades to todayIST only to prevent Oct 27 flash, and deduplicate)
   const [liveTrades, setLiveTrades] = useState<TradeSignal[]>(() => {
-    return initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST);
+    return deduplicateLiveTrades(initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST));
   });
   const [liveAnalyses, setLiveAnalyses] = useState<TradeMilestoneAnalysis[]>([]);
   const [previousTradesCount, setPreviousTradesCount] = useState(() => {
-    return initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST).length;
+    return deduplicateLiveTrades(initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST)).length;
   });
   const [newTradesAlert, setNewTradesAlert] = useState<number>(0);
 
-  // Version filter presets for live pipeline: ultra_uber, meta_thursday, ultra, uber, all
-  const [selectedPreset, setSelectedPreset] = useState<'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all'>('ultra_uber');
   const [outcomeFilter, setOutcomeFilter] = useState<'ALL' | 'PROFIT' | 'LOSS' | 'CANCELLED'>('ALL');
+  const [excludeCancelled, setExcludeCancelled] = useState<boolean>(false);
+  const [versionStates, setVersionStates] = useState<Record<string, VersionFilterMode>>({
+    ULTRA: 'INCLUDE',
+    UBER: 'INCLUDE',
+    META_THURSDAY: 'NONE',
+  });
   const [showHighConfluenceOnly, setShowHighConfluenceOnly] = useState(false);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [negatedRuleIds, setNegatedRuleIds] = useState<string[]>([]);
   const [ruleMatchMode, setRuleMatchMode] = useState<'ALL' | 'ANY'>('ALL');
   const [minScore, setMinScore] = useState<number>(0);
   const [maxScore, setMaxScore] = useState<number>(100);
@@ -99,7 +142,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          trades: tradesToAnalyze,
+          trades: deduplicateLiveTrades(tradesToAnalyze),
           versionFilters: ['ULTRA', 'UBER', 'META_THURSDAY'],
           useAllVersions: false,
           volumeTradesOnly: volumeOnly,
@@ -107,7 +150,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       });
       const data = await res.json();
       if (data.result?.analyses && Array.isArray(data.result.analyses)) {
-        setLiveAnalyses(data.result.analyses);
+        setLiveAnalyses(deduplicateLiveAnalyses(data.result.analyses));
       }
     } catch (e) {
       console.error('Error evaluating live milestones:', e);
@@ -150,17 +193,20 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
           ? dateFilteredTrades.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price')
           : dateFilteredTrades;
 
+        // Deduplicate trades to prevent repeated rows in live stream
+        const uniqueLiveTrades = deduplicateLiveTrades(finalLiveTrades);
+
         // Check if new trades arrived
-        if (finalLiveTrades.length > previousTradesCount && previousTradesCount > 0) {
-          const diff = finalLiveTrades.length - previousTradesCount;
+        if (uniqueLiveTrades.length > previousTradesCount && previousTradesCount > 0) {
+          const diff = uniqueLiveTrades.length - previousTradesCount;
           setNewTradesAlert(diff);
           setTimeout(() => setNewTradesAlert(0), 4000);
         }
-        setPreviousTradesCount(finalLiveTrades.length);
-        setLiveTrades(finalLiveTrades);
+        setPreviousTradesCount(uniqueLiveTrades.length);
+        setLiveTrades(uniqueLiveTrades);
 
         // Run Command 2 milestone pipeline on the incoming live trades
-        await evaluateTradesMilestones(finalLiveTrades);
+        await evaluateTradesMilestones(uniqueLiveTrades);
         // Also trigger automatic 1m candle batch refresh for any pending instruments
         batchRefreshPendingCandles();
       } else {
@@ -262,33 +308,27 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
     };
   }, [isLiveActive, batchRefreshPendingCandles]);
 
-  // Dynamically filtered live analyses based on version preset & outcome filter (Requirement 6, 8, 9)
+  // Dynamically filtered live analyses based on version Include/Negate & outcome filter
   const displayedAnalyses = useMemo(() => {
-    return liveAnalyses.filter((a: TradeMilestoneAnalysis) => {
-      // 1. Version filter preset
-      const v = (a.trade.version || '').toLowerCase();
-      let matchVersion = true;
-      if (selectedPreset === 'meta_thursday') {
-        matchVersion = v.includes('meta_thursday');
-      } else if (selectedPreset === 'ultra_uber') {
-        matchVersion = v.includes('ultra') || v.includes('uber');
-      } else if (selectedPreset === 'ultra') {
-        matchVersion = v.includes('ultra');
-      } else if (selectedPreset === 'uber') {
-        matchVersion = v.includes('uber');
-      } else if (selectedPreset === 'all') {
-        matchVersion = v.includes('ultra') || v.includes('uber') || v.includes('meta_thursday');
-      }
-
+    const filtered = liveAnalyses.filter((a: TradeMilestoneAnalysis) => {
+      // 1. Version filter with Include & Negate support
+      const matchVersion = EnhancedFilterService.matchesVersionFilter(
+        a.trade.version || '',
+        versionStates
+      );
       if (!matchVersion) return false;
+
+      // Exclude cancelled trades if toggle is active
+      const isCancelled = (a.trade.status || '').toLowerCase() === 'cancelled';
+      if (excludeCancelled && isCancelled) return false;
 
       // 2. Outcome / Status filter
       if (outcomeFilter === 'PROFIT') {
-        if (!a.isSuccess) return false;
+        if (!a.isSuccess || isCancelled) return false;
       } else if (outcomeFilter === 'LOSS') {
-        if (a.isSuccess || a.milestone1 === null) return false;
+        if (a.isSuccess || a.milestone1 === null || isCancelled) return false;
       } else if (outcomeFilter === 'CANCELLED') {
-        if ((a.trade.status || '').toLowerCase() !== 'cancelled') return false;
+        if (!isCancelled) return false;
       }
 
       // 3. High Confluence filter shortcut (Score >= 85%)
@@ -297,10 +337,10 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         if (!evaluation.isHighConfluence) return false;
       }
 
-      // 4. Specific Enhanced Rule(s) and Score Range Filter
+      // 4. Specific Enhanced Rule(s) with Pass & Negate Support and Score Range Filter
       const matchesEnhanced = EnhancedFilterService.matchesEnhancedFilters(
         a,
-        selectedRuleIds,
+        { passIds: selectedRuleIds, negateIds: negatedRuleIds },
         ruleMatchMode,
         minScore,
         maxScore,
@@ -310,43 +350,148 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
 
       return true;
     });
+
+    return deduplicateLiveAnalyses(filtered);
   }, [
     liveAnalyses,
-    selectedPreset,
+    versionStates,
     outcomeFilter,
+    excludeCancelled,
     showHighConfluenceOnly,
     selectedRuleIds,
+    negatedRuleIds,
     ruleMatchMode,
     minScore,
     maxScore,
   ]);
+
+  // Active filters string for report metadata
+  const activeLiveFiltersString = useMemo(() => {
+    const parts: string[] = [];
+    const incs = Object.entries(versionStates).filter(([_, s]) => s === 'INCLUDE').map(([k]) => `+${k}`);
+    const negs = Object.entries(versionStates).filter(([_, s]) => s === 'NEGATE').map(([k]) => `-${k}`);
+    if (incs.length > 0 || negs.length > 0) parts.push(`Versions: ${[...incs, ...negs].join(' ')}`);
+    if (outcomeFilter !== 'ALL') parts.push(`Outcome: ${outcomeFilter}`);
+    if (excludeCancelled) parts.push('Cancelled: Excluded');
+    if (selectedRuleIds.length > 0 || negatedRuleIds.length > 0) {
+      parts.push(`Rules: +${selectedRuleIds.length}, -${negatedRuleIds.length} (${ruleMatchMode})`);
+    }
+    if (minScore > 0 || maxScore < 100) parts.push(`Score: ${minScore}%–${maxScore}%`);
+    return parts.join(' | ') || 'All Live Trades';
+  }, [versionStates, outcomeFilter, excludeCancelled, selectedRuleIds, negatedRuleIds, ruleMatchMode, minScore, maxScore]);
+
+  // Export Live Tracker Report (Requirement: Report generation for live tracker)
+  const exportLiveReport = () => {
+    if (displayedAnalyses.length === 0) return;
+    const headers = [
+      'version', 'instrument', 'name', 'type', 'status', 'is_cancelled', 'entry', 'sl', 'tp',
+      'threshold', 'confidence', 'trade_timestamp', 'trade_ist', 'bar_number', 'expected_target',
+      'live_status', 'is_success',
+      'm1_hit_type', 'm1_time_taken', 'm1_candles_count', 'm1_ticks',
+      'm2_hit_type', 'm2_achieved_same_day', 'm2_time_taken', 'm2_ticks',
+      'max_loss_multiple', 'loss_multiple_before_entry_return', 'max_profit_multiple', 'profit_multiple_before_return',
+      'sl_cross_count', 'tp_cross_count', 'entry_cross_count', 'drawdown_ticks', 'drawdown_time',
+      'entry_sma_fast', 'entry_sma_slow', 'entry_ema_20', 'candle_direction', 'candle_position_wrt_ma',
+      'sma_crossover_state', 'sma_crossover_prior_candles', 'sma_crossover_ended_in_candles',
+      'enhanced_engine', 'enhanced_score', 'is_high_confluence', 'achieved_rules', 'missed_rules', 'user_note',
+      'guidance_advice'
+    ];
+
+    const escapeCsv = (val: unknown): string => {
+      if (val === undefined || val === null) return '';
+      const s = String(val);
+      if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    };
+
+    const rows = displayedAnalyses.map((a) => {
+      const t = a.trade;
+      const m1 = a.milestone1;
+      const m2 = a.milestone2;
+      const dd = a.drawdown;
+      const ind = a.entryIndicators;
+      const evalResult = EnhancedFilterService.evaluate(a, liveAnalyses);
+      const note = TradeNotesService.getNoteForTrade(t);
+
+      return [
+        t.version, t.instrument, t.name, t.type, t.status || 'active', t.status === 'cancelled' ? 'YES' : 'NO',
+        Number(t.entry || 0).toFixed(2), Number(t.sl || 0).toFixed(2), Number(t.tp || 0).toFixed(2),
+        t.threshold, t.confidence ?? '', t.timestamp, a.entryIst || UpstoxApiService.toISTString(t.timestamp), t.barNumber || '',
+        a.expectedTarget, a.status || 'ACTIVE', a.isSuccess ? 'SUCCESS' : 'LOSS_ADVERSE',
+        m1?.type || 'PENDING', m1?.timeTakenFormatted || '', m1?.candlesCount ?? '', m1 ? m1.ticks.toFixed(2) : '',
+        m2?.type || 'PENDING', m2 ? (m2.achievedSameDay ? 'YES' : 'NO') : '', m2?.timeTakenFormatted || '', m2 ? m2.ticks.toFixed(2) : '',
+        `${dd.maxLossMultiple.toFixed(2)}x`, `${dd.lossMultipleBeforeEntryReturn.toFixed(2)}x`,
+        `${(dd.maxProfitMultiple || 0).toFixed(2)}x`, `${(dd.profitMultipleBeforeReturn || 0).toFixed(2)}x`,
+        dd.slCrossCount, dd.tpCrossCount, dd.entryCrossCount, dd.drawdownTicks.toFixed(2), dd.drawdownTimeFormatted,
+        ind ? ind.smaFast : '', ind ? ind.smaSlow : '', ind ? ind.ema20 : '', ind ? ind.candleDirection : '', ind ? ind.candlePositionWrtMa : '',
+        ind ? ind.crossoverState : '', ind ? ind.crossoverCandlesPrior : '', ind ? (ind.crossoverEndedInCandles !== null ? ind.crossoverEndedInCandles : 'Persisted') : '',
+        evalResult.engineType, `${evalResult.score}%`, evalResult.isHighConfluence ? 'YES' : 'NO',
+        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), note,
+        evalResult.guidance.liveStatusAdvice || evalResult.guidance.lossManagementRule || ''
+      ].map(escapeCsv).join(',');
+    });
+
+    const csvContent = `# Signalsnatch Live Pipeline Tracker Report\n# Filters Applied: ${activeLiveFiltersString}\n# Generated IST: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })}\n# Total Live Filtered Trades: ${displayedAnalyses.length}\n` + [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `live_tracker_report_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   // Enhanced aggregated analytics for Score >= 85% breakdown (reflecting active filtered trades)
   const enhancedSummary = useMemo(() => {
     return EnhancedFilterService.computeAggregatedAnalytics(displayedAnalyses);
   }, [displayedAnalyses]);
 
-  // Derived live KPI statistics strictly reflecting the filtered analyses (Requirement 7, 8, 9)
+  // Derived live KPI statistics strictly reflecting the filtered analyses (Requirement: max profit, avg crossings, M1 ticks, M2 time, win rate)
   const totalAnalyzed = displayedAnalyses.length;
   const wins = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => a.isSuccess).length;
   const losses = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => !a.isSuccess && a.milestone1 !== null).length;
   const cancelledCount = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => (a.trade.status || '').toLowerCase() === 'cancelled').length;
   const winRate = totalAnalyzed > 0 ? ((wins / totalAnalyzed) * 100).toFixed(1) : '0.0';
 
+  // Version breakdowns for win rates
+  const uberTrades = displayedAnalyses.filter((a) => /uber/i.test(a.trade.version));
+  const uberWins = uberTrades.filter((a) => a.isSuccess).length;
+  const uberWinPct = uberTrades.length > 0 ? ((uberWins / uberTrades.length) * 100).toFixed(1) : '0.0';
+
+  const ultraTrades = displayedAnalyses.filter((a) => /ultra/i.test(a.trade.version));
+  const ultraWins = ultraTrades.filter((a) => a.isSuccess).length;
+  const ultraWinPct = ultraTrades.length > 0 ? ((ultraWins / ultraTrades.length) * 100).toFixed(1) : '0.0';
+
+  // M1 speed & ticks
   const analysesWithM1 = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => a.milestone1 !== null);
   const avgM1Ticks =
     analysesWithM1.length > 0
       ? (analysesWithM1.reduce((acc: number, a: TradeMilestoneAnalysis) => acc + (a.milestone1?.ticks || 0), 0) / analysesWithM1.length).toFixed(1)
       : '0.0';
 
+  const totalM1TimeMs = analysesWithM1.reduce((acc, a) => acc + (a.milestone1?.timeTakenMs || 0), 0);
+  const avgM1TimeMs = analysesWithM1.length > 0 ? totalM1TimeMs / analysesWithM1.length : 0;
+  const avgTimeM1Formatted =
+    analysesWithM1.length > 0
+      ? `${Math.floor(avgM1TimeMs / 60000)}m ${Math.floor((avgM1TimeMs % 60000) / 1000)}s`
+      : 'N/A';
+  const avgCandlesToM1 =
+    analysesWithM1.length > 0
+      ? (analysesWithM1.reduce((acc, a) => acc + (a.milestone1?.candlesCount || 0), 0) / analysesWithM1.length).toFixed(1)
+      : '0.0';
+
+  // M2 speed & time
   const m2Achieved = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => a.milestone2 && a.milestone2.type !== 'PENDING');
   const m2Hits = m2Achieved.length;
+  const m2SameDayCount = displayedAnalyses.filter((a) => a.milestone2?.achievedSameDay).length;
+  const m2PendingCount = displayedAnalyses.filter((a) => a.milestone2?.type === 'PENDING').length;
+
   const avgM2Ticks =
     m2Hits > 0
       ? (m2Achieved.reduce((acc: number, a: TradeMilestoneAnalysis) => acc + (a.milestone2?.ticks || 0), 0) / m2Hits).toFixed(1)
       : '0.0';
 
-  // Requirement 8: Avg Time to M2
   const totalM2TimeMs = m2Achieved.reduce((sum: number, a: TradeMilestoneAnalysis) => sum + (a.milestone2?.timeTakenMs || 0), 0);
   const avgM2TimeMs = m2Hits > 0 ? totalM2TimeMs / m2Hits : 0;
   const avgTimeM2Formatted =
@@ -354,12 +499,39 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       ? `${Math.floor(avgM2TimeMs / 60000)}m ${Math.floor((avgM2TimeMs % 60000) / 1000)}s`
       : 'N/A';
 
-  // Excursion statistics
+  // Max Profit Multiple & excursions
+  const peakMaxProfit =
+    totalAnalyzed > 0
+      ? Math.max(0, ...displayedAnalyses.map((a: TradeMilestoneAnalysis) => a.drawdown?.maxProfitMultiple || 0)).toFixed(1)
+      : '0.0';
+  const avgMaxProfit =
+    totalAnalyzed > 0
+      ? (displayedAnalyses.reduce((acc, a) => acc + (a.drawdown?.maxProfitMultiple || 0), 0) / totalAnalyzed).toFixed(1)
+      : '0.0';
+  const avgProfitBeforeReturn =
+    totalAnalyzed > 0
+      ? (displayedAnalyses.reduce((acc, a) => acc + (a.drawdown?.profitMultipleBeforeReturn || 0), 0) / totalAnalyzed).toFixed(1)
+      : '0.0';
+
   const analysesWithDrawdown = displayedAnalyses.filter((a: TradeMilestoneAnalysis) => a.drawdown && a.drawdown.maxLossMultiple > 0);
   const maxAdverseDrawdown =
     analysesWithDrawdown.length > 0
       ? Math.max(...analysesWithDrawdown.map((a: TradeMilestoneAnalysis) => a.drawdown.maxLossMultiple)).toFixed(1)
       : '1.0';
+
+  // Average Level Crossings (Entry / SL / TP count)
+  const avgEntryCrossCount =
+    totalAnalyzed > 0
+      ? (displayedAnalyses.reduce((acc, a) => acc + (a.drawdown?.entryCrossCount || 0), 0) / totalAnalyzed).toFixed(1)
+      : '0.0';
+  const avgSlCrossCount =
+    totalAnalyzed > 0
+      ? (displayedAnalyses.reduce((acc, a) => acc + (a.drawdown?.slCrossCount || 0), 0) / totalAnalyzed).toFixed(1)
+      : '0.0';
+  const avgTpCrossCount =
+    totalAnalyzed > 0
+      ? (displayedAnalyses.reduce((acc, a) => acc + (a.drawdown?.tpCrossCount || 0), 0) / totalAnalyzed).toFixed(1)
+      : '0.0';
 
   return (
     <div className="space-y-6">
@@ -475,6 +647,17 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
               <RefreshCw className={`w-3.5 h-3.5 ${isPolling ? 'animate-spin text-cyan-400' : ''}`} />
               <span>Poll Now</span>
             </button>
+
+            {/* Export Live Report CSV Button */}
+            <button
+              onClick={exportLiveReport}
+              disabled={displayedAnalyses.length === 0}
+              title="Export all currently filtered live trades to CSV report"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 disabled:opacity-50 text-white text-xs font-semibold transition cursor-pointer shadow-sm shadow-cyan-900/20"
+            >
+              <Download className="w-3.5 h-3.5 text-cyan-200" />
+              <span>Export Live Report ({displayedAnalyses.length})</span>
+            </button>
           </div>
         </div>
 
@@ -494,38 +677,20 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
               1m Candle Sync: <strong className="text-emerald-400 font-mono">{lastBatchCandleRefreshTime ? `${lastBatchCandleRefreshTime}` : 'Every 60s'}</strong>
             </span>
           </div>
+        </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-slate-400">Preset:</span>
-            {(
-              [
-                { id: 'ultra_uber', label: 'Ultra & Uber' },
-                { id: 'meta_thursday', label: 'Meta Thursday' },
-                { id: 'ultra', label: 'Ultra Only' },
-                { id: 'uber', label: 'Uber Only' },
-                { id: 'all', label: 'All 3' },
-              ] as const
-            ).map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedPreset(p.id)}
-                className={`px-2 py-0.5 rounded text-[10px] font-bold border transition cursor-pointer ${
-                  selectedPreset === p.id
-                    ? p.id === 'meta_thursday'
-                      ? 'bg-teal-900 text-teal-200 border-teal-500 shadow-sm'
-                      : 'bg-indigo-600 text-white border-indigo-400 shadow-sm'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white hover:bg-slate-800'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
+        {/* Version Filter with Include & Negate support */}
+        <div className="pt-2.5 border-t border-slate-800">
+          <VersionFilterControl
+            versionStates={versionStates}
+            onChangeVersionStates={setVersionStates}
+            availableVersions={['ULTRA', 'UBER', 'META_THURSDAY']}
+          />
         </div>
 
         {/* Outcome Filter Toolbar */}
         <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-800 flex-wrap gap-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-slate-400 font-medium">Outcome:</span>
             {(
               [
@@ -553,6 +718,21 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                 {tab.label}
               </button>
             ))}
+
+            {/* Remove / Exclude Cancelled trades toggle */}
+            <button
+              onClick={() => setExcludeCancelled((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                excludeCancelled
+                  ? 'bg-rose-950/70 text-rose-300 border-rose-800 shadow-sm'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+              title="Remove/exclude cancelled trades from live statistics, tables, and reports"
+            >
+              <Ban className="w-3.5 h-3.5 text-rose-400" />
+              <span>Exclude Cancelled</span>
+              {excludeCancelled && <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />}
+            </button>
           </div>
 
           <div className="text-slate-400 text-[11px] font-mono">
@@ -576,6 +756,8 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       <EnhancedRulesFilterControls
         selectedRuleIds={selectedRuleIds}
         onSelectRuleIds={setSelectedRuleIds}
+        negatedRuleIds={negatedRuleIds}
+        onNegateRuleIds={setNegatedRuleIds}
         ruleMatchMode={ruleMatchMode}
         onRuleMatchModeChange={setRuleMatchMode}
         minScore={minScore}
@@ -611,59 +793,169 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         }}
       />
 
-      {/* Live KPI Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <div className="text-xs text-slate-400 flex items-center justify-between">
-            <span>Live Win Rate (M1)</span>
-            <Target className="w-4 h-4 text-emerald-400" />
+      {/* Live KPI Metric Cards (Requirement: Post max profit, avg crossings, M1 ticks, M2 time, win rate) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        {/* Card 1: Win Rate & Resolutions */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="text-xs text-slate-400 flex items-center justify-between mb-2">
+              <span className="font-semibold uppercase tracking-wider">Live Win Rate (M1)</span>
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                <Award className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold text-emerald-400 font-mono">{winRate}%</span>
+              <span className="text-xs text-slate-400 font-mono">({wins}/{totalAnalyzed} won)</span>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-emerald-400 mt-1">{winRate}%</div>
-          <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
-            <span>{wins}W / {losses}L of {totalAnalyzed} filtered</span>
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-indigo-300 font-medium">Uber (SL win):</span>
+              <span className="font-semibold text-white font-mono">{uberWinPct}% ({uberWins}/{uberTrades.length})</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-cyan-300 font-medium">Ultra (TP win):</span>
+              <span className="font-semibold text-white font-mono">{ultraWinPct}% ({ultraWins}/{ultraTrades.length})</span>
+            </div>
             {cancelledCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded bg-rose-950/80 text-[10px] text-rose-300 border border-rose-800/60 font-semibold">
-                {cancelledCount} Cancelled
-              </span>
+              <div className="flex justify-between items-center text-amber-400 font-medium pt-1 border-t border-slate-800/40">
+                <span>Cancelled Trades:</span>
+                <span className="font-semibold font-mono">{cancelledCount}</span>
+              </div>
             )}
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <div className="text-xs text-slate-400 flex items-center justify-between">
-            <span>Avg M1 Speed Ticks</span>
-            <BarChart2 className="w-4 h-4 text-cyan-400" />
+        {/* Card 2: M1 Speed & Ticks */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="text-xs text-slate-400 flex items-center justify-between mb-2">
+              <span className="font-semibold uppercase tracking-wider">M1 Speed & Ticks</span>
+              <div className="w-7 h-7 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold text-cyan-400 font-mono">{avgM1Ticks}</span>
+              <span className="text-xs text-slate-400">ticks (vol / thresh)</span>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-cyan-400 mt-1">{avgM1Ticks}</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">volumeSum / threshold</div>
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Avg Time to M1:</span>
+              <span className="font-semibold text-slate-200 font-mono truncate max-w-[130px]" title={avgTimeM1Formatted}>
+                {avgTimeM1Formatted}
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Avg 1-Min Candles:</span>
+              <span className="font-medium text-slate-200 font-mono">{avgCandlesToM1} candles</span>
+            </div>
+            <div className="flex justify-between items-center text-slate-400">
+              <span>Hit M1 Count:</span>
+              <span className="font-semibold text-white font-mono">{analysesWithM1.length}/{totalAnalyzed}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <div className="text-xs text-slate-400 flex items-center justify-between">
-            <span>M2 Follow-through & Time</span>
-            <TrendingUp className="w-4 h-4 text-indigo-400" />
+        {/* Card 3: M2 Time & Follow-Through */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="text-xs text-slate-400 flex items-center justify-between mb-2">
+              <span className="font-semibold uppercase tracking-wider">M2 Time & Follow-Through</span>
+              <div className="w-7 h-7 rounded-lg bg-purple-500/10 text-purple-400 flex items-center justify-center">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-xl font-bold text-purple-400 font-mono truncate" title={avgTimeM2Formatted}>
+                {avgTimeM2Formatted}
+              </span>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-indigo-400 mt-1">
-            {totalAnalyzed > 0 ? ((m2Hits / totalAnalyzed) * 100).toFixed(1) : '0'}%
-          </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">
-            {m2Hits} hit M2 • Avg Time: <strong className="text-indigo-300 font-mono">{avgTimeM2Formatted}</strong>
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Avg M2 Speed:</span>
+              <span className="font-semibold text-purple-300 font-mono">{avgM2Ticks} ticks</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-emerald-400">Same-Day M2:</span>
+              <span className="font-semibold text-white font-mono">
+                {m2SameDayCount} ({totalAnalyzed > 0 ? ((m2SameDayCount / totalAnalyzed) * 100).toFixed(1) : '0'}%)
+              </span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-amber-400">Pending M2:</span>
+              <span className="font-semibold text-white font-mono">
+                {m2PendingCount} ({totalAnalyzed > 0 ? ((m2PendingCount / totalAnalyzed) * 100).toFixed(1) : '0'}%)
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-          <div className="text-xs text-slate-400 flex items-center justify-between">
-            <span>Max Adverse Loss Multiple</span>
-            <ShieldAlert className="w-4 h-4 text-rose-400" />
+        {/* Card 4: Max Profit Multiple */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="text-xs text-slate-400 flex items-center justify-between mb-2">
+              <span className="font-semibold uppercase tracking-wider">Max Profit Multiple</span>
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold text-emerald-400 font-mono">{peakMaxProfit}x</span>
+              <span className="text-xs text-slate-400">peak /</span>
+              <span className="text-xl font-bold text-emerald-300 font-mono">{avgMaxProfit}x</span>
+              <span className="text-xs text-slate-400">avg</span>
+            </div>
           </div>
-          <div className="text-2xl font-bold text-rose-400 mt-1">{maxAdverseDrawdown}x</div>
-          <div className="text-[11px] text-slate-500 mt-0.5">drawdown multiple before target</div>
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-slate-400">Profit Before Return:</span>
+              <span className="font-semibold text-emerald-300 font-mono">{avgProfitBeforeReturn}x</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-rose-400">Max Adverse Loss:</span>
+              <span className="font-semibold text-rose-300 font-mono">{maxAdverseDrawdown}x risk</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Card 5: Avg Level Crossings (Entry / SL / TP) */}
+        <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="text-xs text-slate-400 flex items-center justify-between mb-2">
+              <span className="font-semibold uppercase tracking-wider">Avg Level Crossings</span>
+              <div className="w-7 h-7 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
+                <Activity className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold text-sky-400 font-mono">{avgEntryCrossCount}</span>
+              <span className="text-xs text-slate-400">avg entry crossings</span>
+            </div>
+          </div>
+          <div className="space-y-1.5 pt-2 border-t border-slate-800/60 text-xs">
+            <div className="flex justify-between items-center">
+              <span className="text-sky-300 font-medium">Avg Entry Crossings:</span>
+              <span className="font-semibold text-white font-mono">{avgEntryCrossCount}x</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-rose-400 font-medium">Avg SL Crossings:</span>
+              <span className="font-semibold text-white font-mono">{avgSlCrossCount}x</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-emerald-400 font-medium">Avg TP Crossings:</span>
+              <span className="font-semibold text-white font-mono">{avgTpCrossCount}x</span>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Live Signals & Milestones Stream Table */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-xl overflow-hidden">
-        <div className="p-4 sm:p-5 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="p-4 sm:p-5 border-b border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-950/60">
           <div>
             <h4 className="text-sm font-bold text-white flex items-center gap-2">
               <span>Live Trade Milestone Analysis</span>
@@ -675,6 +967,16 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
               Evaluated strictly with 1-min Upstox candle data, volumeSum / threshold ticks, and IST timestamps.
             </p>
           </div>
+
+          <button
+            onClick={exportLiveReport}
+            disabled={displayedAnalyses.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+            title="Download full live CSV report for currently filtered trades"
+          >
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <span>Export Report ({displayedAnalyses.length})</span>
+          </button>
         </div>
 
         <div className="overflow-x-auto">
@@ -697,7 +999,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
               {displayedAnalyses.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
-                    No trades match the current preset ({selectedPreset}) and outcome filter ({outcomeFilter}).
+                    No trades match the current version filters or outcome filter ({outcomeFilter}).
                   </td>
                 </tr>
               ) : (

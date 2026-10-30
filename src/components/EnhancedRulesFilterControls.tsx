@@ -10,6 +10,10 @@ import {
   RotateCcw,
   Layers,
   HelpCircle,
+  Plus,
+  Minus,
+  Ban,
+  Check,
 } from 'lucide-react';
 import {
   ALL_ENHANCED_RULES,
@@ -19,6 +23,8 @@ import {
 interface EnhancedRulesFilterControlsProps {
   selectedRuleIds: string[];
   onSelectRuleIds: (ruleIds: string[]) => void;
+  negatedRuleIds?: string[];
+  onNegateRuleIds?: (ruleIds: string[]) => void;
   ruleMatchMode: 'ALL' | 'ANY';
   onRuleMatchModeChange: (mode: 'ALL' | 'ANY') => void;
   minScore: number;
@@ -32,6 +38,8 @@ interface EnhancedRulesFilterControlsProps {
 export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsProps> = ({
   selectedRuleIds,
   onSelectRuleIds,
+  negatedRuleIds = [],
+  onNegateRuleIds,
   ruleMatchMode,
   onRuleMatchModeChange,
   minScore,
@@ -45,15 +53,53 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
   const [engineTab, setEngineTab] = useState<'ALL' | 'UBER' | 'META' | 'ULTRA'>('ALL');
 
   const isScoreFiltered = minScore > 0 || maxScore < 100;
-  const isRulesFiltered = selectedRuleIds.length > 0;
+  const isRulesFiltered = selectedRuleIds.length > 0 || negatedRuleIds.length > 0;
   const isAnyFilterActive = isScoreFiltered || isRulesFiltered;
 
-  // Toggle individual rule
-  const handleToggleRule = (ruleId: string) => {
-    if (selectedRuleIds.includes(ruleId)) {
+  // Toggle rule state: NONE -> PASS -> NEGATE -> NONE
+  const handleCycleRule = (ruleId: string) => {
+    const isPass = selectedRuleIds.includes(ruleId);
+    const isNeg = negatedRuleIds.includes(ruleId);
+
+    if (!isPass && !isNeg) {
+      // Set to PASS
+      onSelectRuleIds([...selectedRuleIds, ruleId]);
+    } else if (isPass) {
+      // Switch from PASS to NEGATE
+      onSelectRuleIds(selectedRuleIds.filter((id) => id !== ruleId));
+      if (onNegateRuleIds) {
+        onNegateRuleIds([...negatedRuleIds, ruleId]);
+      }
+    } else if (isNeg) {
+      // Clear NEGATE back to OFF
+      if (onNegateRuleIds) {
+        onNegateRuleIds(negatedRuleIds.filter((id) => id !== ruleId));
+      }
+    }
+  };
+
+  const handleSetRulePass = (ruleId: string) => {
+    const isPass = selectedRuleIds.includes(ruleId);
+    if (isPass) {
       onSelectRuleIds(selectedRuleIds.filter((id) => id !== ruleId));
     } else {
       onSelectRuleIds([...selectedRuleIds, ruleId]);
+      if (onNegateRuleIds && negatedRuleIds.includes(ruleId)) {
+        onNegateRuleIds(negatedRuleIds.filter((id) => id !== ruleId));
+      }
+    }
+  };
+
+  const handleSetRuleNegate = (ruleId: string) => {
+    if (!onNegateRuleIds) return;
+    const isNeg = negatedRuleIds.includes(ruleId);
+    if (isNeg) {
+      onNegateRuleIds(negatedRuleIds.filter((id) => id !== ruleId));
+    } else {
+      onNegateRuleIds([...negatedRuleIds, ruleId]);
+      if (selectedRuleIds.includes(ruleId)) {
+        onSelectRuleIds(selectedRuleIds.filter((id) => id !== ruleId));
+      }
     }
   };
 
@@ -65,6 +111,9 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
   // Reset all enhanced filters
   const handleResetFilters = () => {
     onSelectRuleIds([]);
+    if (onNegateRuleIds) {
+      onNegateRuleIds([]);
+    }
     onRuleMatchModeChange('ALL');
     onScoreRangeChange(0, 100);
   };
@@ -98,97 +147,133 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
               {/* Active Filter Badges in Header */}
               {isScoreFiltered && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-indigo-950 text-indigo-300 border border-indigo-700">
-                  Score: {minScore}% – {maxScore}%
+                  Score: {minScore}%–{maxScore}%
                 </span>
               )}
-
+              {selectedRuleIds.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-700 flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-400" />
+                  <span>+{selectedRuleIds.length} Required</span>
+                </span>
+              )}
+              {negatedRuleIds.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-950 text-rose-300 border border-rose-700 flex items-center gap-1">
+                  <Ban className="w-3 h-3 text-rose-400" />
+                  <span>-{negatedRuleIds.length} Negated</span>
+                </span>
+              )}
               {isRulesFiltered && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-purple-950 text-purple-300 border border-purple-700">
-                  {selectedRuleIds.length} Rule{selectedRuleIds.length > 1 ? 's' : ''} ({ruleMatchMode})
+                <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300">
+                  {ruleMatchMode}
                 </span>
               )}
             </div>
-
             <p className="text-[11px] text-slate-400 mt-0.5">
-              Filter trades by single or combined rules (Inverted Alignment, Compression, Timing, etc.) and fine-tune score brackets.
+              Select specific rules to require (+) or negate (-), filter by score range, or toggle quick presets.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 self-end md:self-auto">
-          <div className="text-right text-[11px] font-mono">
-            <span className="text-slate-400">Matches: </span>
-            <strong className="text-emerald-400 font-bold">{totalFilteredCount}</strong>
-            <span className="text-slate-500"> / {totalAvailableCount} trades</span>
+        <div className="flex items-center gap-2 text-xs w-full sm:w-auto justify-between sm:justify-end">
+          <div className="font-mono text-slate-300 text-right">
+            Matches: <strong className="text-emerald-400">{totalFilteredCount}</strong> /{' '}
+            <span className="text-slate-500">{totalAvailableCount} trades</span>
           </div>
-
           {isAnyFilterActive && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 handleResetFilters();
               }}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 text-[10px] font-semibold border border-rose-900/50 transition cursor-pointer"
-              title="Reset enhanced rules and score filters to default"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800/80 text-[11px] text-rose-300 font-semibold transition cursor-pointer"
+              title="Reset all enhanced rules and score filters"
             >
               <RotateCcw className="w-3 h-3" />
               <span>Reset</span>
             </button>
           )}
-
-          <div className="p-1 rounded-lg bg-slate-800 text-slate-400">
+          <button className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white transition">
             {isOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </div>
+          </button>
         </div>
       </div>
 
-      {/* Expanded Controls Panel */}
+      {/* Expanded Controls Drawer */}
       {isOpen && (
-        <div className="p-4 sm:p-5 border-t border-slate-800 space-y-5 bg-slate-900/40 animate-in fade-in duration-150">
-          {/* SECTION 1: ENHANCED RULE SCORE RANGE FILTER */}
+        <div className="p-4 border-t border-slate-800 bg-slate-900/90 space-y-5">
+          {/* SECTION 1: SCORE RANGE FILTER */}
           <div className="space-y-2.5">
-            <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider font-mono">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                1. Enhanced Rule Score Range:
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                1. Filter by Enhanced Rule Score Range:
               </span>
 
-              {/* Quick Preset Buttons */}
-              <div className="flex items-center gap-1 flex-wrap text-xs">
-                <span className="text-[10px] text-slate-400 mr-1 font-mono">Presets:</span>
-                {[
-                  { label: 'All (0–100%)', min: 0, max: 100 },
-                  { label: '≥ 85% (Optimal)', min: 85, max: 100 },
-                  { label: '70% – 84%', min: 70, max: 84 },
-                  { label: '50% – 69%', min: 50, max: 69 },
-                  { label: '< 50%', min: 0, max: 49 },
-                ].map((p) => {
-                  const isActive = minScore === p.min && maxScore === p.max;
-                  return (
-                    <button
-                      key={p.label}
-                      onClick={() => handleScorePreset(p.min, p.max)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition cursor-pointer ${
-                        isActive
-                          ? 'bg-indigo-600 text-white shadow-sm'
-                          : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800 hover:bg-slate-800'
-                      }`}
-                    >
-                      {p.label}
-                    </button>
-                  );
-                })}
+              {/* Quick Score Range Presets */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-slate-500 text-[11px]">Presets:</span>
+                <button
+                  onClick={() => handleScorePreset(0, 100)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                    minScore === 0 && maxScore === 100
+                      ? 'bg-slate-700 text-white font-bold'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  All (0–100%)
+                </button>
+                <button
+                  onClick={() => handleScorePreset(85, 100)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
+                    minScore === 85 && maxScore === 100
+                      ? 'bg-emerald-600 text-white font-bold shadow-sm'
+                      : 'bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/60 border border-emerald-800/80'
+                  }`}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>≥ 85% Optimal (Confluence)</span>
+                </button>
+                <button
+                  onClick={() => handleScorePreset(70, 84)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                    minScore === 70 && maxScore === 84
+                      ? 'bg-indigo-600 text-white font-bold'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  70%–84% (Moderate)
+                </button>
+                <button
+                  onClick={() => handleScorePreset(50, 69)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                    minScore === 50 && maxScore === 69
+                      ? 'bg-amber-600 text-white font-bold'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  50%–69%
+                </button>
+                <button
+                  onClick={() => handleScorePreset(0, 49)}
+                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition cursor-pointer ${
+                    minScore === 0 && maxScore === 49
+                      ? 'bg-rose-600 text-white font-bold'
+                      : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'
+                  }`}
+                >
+                  &lt; 50% (High Risk)
+                </button>
               </div>
             </div>
 
-            {/* Custom Range Sliders & Inputs */}
+            {/* Score Sliders & Inputs */}
             <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-center gap-4 text-xs font-mono">
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <span className="text-slate-400">Min Score:</span>
+                <span className="text-slate-400 w-16">Min Score:</span>
                 <input
                   type="number"
                   min={0}
-                  max={maxScore}
+                  max={100}
                   value={minScore}
                   onChange={(e) => {
                     const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
@@ -211,10 +296,10 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <span className="text-slate-400">Max Score:</span>
+                <span className="text-slate-400 w-16">Max Score:</span>
                 <input
                   type="number"
-                  min={minScore}
+                  min={0}
                   max={100}
                   value={maxScore}
                   onChange={(e) => {
@@ -249,7 +334,7 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
               <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5 uppercase tracking-wider font-mono">
                 <Filter className="w-3.5 h-3.5 text-cyan-400" />
-                2. Select Specific Rule or Combination of Rules:
+                2. Select Specific Rule or Combination of Rules (Include or Negate):
               </span>
 
               {/* Engine Sub-Tabs & Match Mode */}
@@ -264,7 +349,7 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
                         ? 'bg-indigo-600 text-white shadow-sm'
                         : 'text-slate-400 hover:text-white'
                     }`}
-                    title="Trade must pass ALL selected rules"
+                    title="Trade must satisfy ALL specified rule conditions"
                   >
                     Match ALL (Strict)
                   </button>
@@ -275,7 +360,7 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
                         ? 'bg-cyan-600 text-white shadow-sm'
                         : 'text-slate-400 hover:text-white'
                     }`}
-                    title="Trade must pass AT LEAST ONE of selected rules"
+                    title="Trade must satisfy AT LEAST ONE specified rule condition"
                   >
                     Match ANY (Broad)
                   </button>
@@ -287,90 +372,156 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
                     <button
                       key={eng}
                       onClick={() => setEngineTab(eng)}
-                      className={`px-2 py-0.5 rounded font-semibold transition cursor-pointer ${
+                      className={`px-2.5 py-0.5 rounded font-semibold transition cursor-pointer ${
                         engineTab === eng
                           ? eng === 'UBER'
-                            ? 'bg-purple-900 text-purple-200'
+                            ? 'bg-purple-600 text-white shadow-sm'
                             : eng === 'META'
-                            ? 'bg-teal-900 text-teal-200'
+                            ? 'bg-teal-600 text-white shadow-sm'
                             : eng === 'ULTRA'
-                            ? 'bg-amber-900 text-amber-200'
-                            : 'bg-slate-800 text-white'
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'bg-slate-700 text-white shadow-sm'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      {eng === 'ALL' ? 'All Rules' : eng}
+                      {eng === 'ALL' ? 'All Engines' : eng}
                     </button>
                   ))}
                 </div>
 
-                {selectedRuleIds.length > 0 && (
+                {(selectedRuleIds.length > 0 || negatedRuleIds.length > 0) && (
                   <button
-                    onClick={() => onSelectRuleIds([])}
+                    onClick={() => {
+                      onSelectRuleIds([]);
+                      if (onNegateRuleIds) onNegateRuleIds([]);
+                    }}
                     className="text-[10px] text-rose-400 hover:text-rose-300 font-medium underline cursor-pointer ml-1"
                   >
-                    Clear Rules ({selectedRuleIds.length})
+                    Clear Rules ({selectedRuleIds.length + negatedRuleIds.length})
                   </button>
                 )}
               </div>
             </div>
 
-            {/* List of Rules with Checkboxes */}
+            {/* List of Rules with Pass (+) / Negate (-) Toggles */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
               {displayedRules.map((rule: EnhancedRuleDefinition) => {
-                const isSelected = selectedRuleIds.includes(rule.id);
+                const isPass = selectedRuleIds.includes(rule.id);
+                const isNeg = negatedRuleIds.includes(rule.id);
+
                 return (
                   <div
                     key={rule.id}
-                    onClick={() => handleToggleRule(rule.id)}
-                    className={`p-3 rounded-xl border text-xs cursor-pointer transition flex items-start gap-2.5 select-none ${
-                      isSelected
-                        ? 'bg-indigo-950/70 border-indigo-500 shadow-sm text-white'
+                    onClick={() => handleCycleRule(rule.id)}
+                    className={`p-3 rounded-xl border text-xs cursor-pointer transition flex flex-col justify-between gap-2 select-none ${
+                      isPass
+                        ? 'bg-emerald-950/60 border-emerald-500 shadow-sm text-white'
+                        : isNeg
+                        ? 'bg-rose-950/60 border-rose-500 shadow-sm text-white'
                         : 'bg-slate-950/70 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-900'
                     }`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // Handled by container onClick
-                      className="mt-0.5 w-4 h-4 rounded text-indigo-600 focus:ring-0 bg-slate-900 border-slate-700 cursor-pointer shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-bold text-xs truncate">{rule.name}</span>
-                        <span
-                          className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
-                            rule.engine === 'UBER'
-                              ? 'bg-purple-950 text-purple-300 border border-purple-800'
-                              : rule.engine === 'META'
-                              ? 'bg-teal-950 text-teal-300 border border-teal-800'
-                              : 'bg-amber-950 text-amber-300 border border-amber-800'
-                          }`}
-                        >
-                          {rule.engine}
-                        </span>
+                    <div>
+                      <div className="flex items-center justify-between gap-1.5 mb-1">
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <span className="font-bold text-xs truncate">{rule.name}</span>
+                          <span
+                            className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                              rule.engine === 'UBER'
+                                ? 'bg-purple-950 text-purple-300 border border-purple-800'
+                                : rule.engine === 'META'
+                                ? 'bg-teal-950 text-teal-300 border border-teal-800'
+                                : 'bg-amber-950 text-amber-300 border border-amber-800'
+                            }`}
+                          >
+                            {rule.engine}
+                          </span>
+                        </div>
+
+                        {/* Status Tag */}
+                        {isPass && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-emerald-900 text-emerald-300 border border-emerald-600 flex items-center gap-0.5 shrink-0">
+                            <Check className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>MUST PASS</span>
+                          </span>
+                        )}
+                        {isNeg && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono bg-rose-900 text-rose-300 border border-rose-600 flex items-center gap-0.5 shrink-0">
+                            <Ban className="w-2.5 h-2.5 stroke-[3]" />
+                            <span>NEGATE (FAIL)</span>
+                          </span>
+                        )}
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1 line-clamp-2">
+
+                      <p className="text-[11px] text-slate-400 line-clamp-2">
                         {rule.description}
                       </p>
+                    </div>
+
+                    {/* Action Bar for this rule */}
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center justify-between pt-2 border-t border-slate-800/60 text-[10px]"
+                    >
+                      <span className="text-slate-500">Click to cycle or toggle:</span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSetRulePass(rule.id)}
+                          className={`px-2 py-0.5 rounded font-bold transition cursor-pointer flex items-center gap-0.5 ${
+                            isPass
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 border border-slate-700'
+                          }`}
+                          title="Require trade to satisfy this rule (+)"
+                        >
+                          <Plus className="w-2.5 h-2.5 stroke-[3]" />
+                          <span>Pass</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSetRuleNegate(rule.id)}
+                          className={`px-2 py-0.5 rounded font-bold transition cursor-pointer flex items-center gap-0.5 ${
+                            isNeg
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-rose-400 border border-slate-700'
+                          }`}
+                          title="Negate: Require trade to NOT satisfy this rule (-)"
+                        >
+                          <Minus className="w-2.5 h-2.5 stroke-[3]" />
+                          <span>Negate</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
 
-            {selectedRuleIds.length > 0 && (
+            {(selectedRuleIds.length > 0 || negatedRuleIds.length > 0) && (
               <div className="p-2.5 rounded-xl bg-indigo-950/30 border border-indigo-800/50 flex items-center justify-between text-xs text-indigo-300 flex-wrap gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
                   <span>
-                    Listing trades that pass <strong>{ruleMatchMode === 'ALL' ? 'ALL' : 'ANY'}</strong> of the{' '}
-                    <strong>{selectedRuleIds.length}</strong> selected rule(s).
+                    Active Rule Conditions ({ruleMatchMode} Mode):{' '}
+                    {selectedRuleIds.length > 0 && (
+                      <strong className="text-emerald-400">+{selectedRuleIds.length} Required</strong>
+                    )}
+                    {selectedRuleIds.length > 0 && negatedRuleIds.length > 0 && ', '}
+                    {negatedRuleIds.length > 0 && (
+                      <strong className="text-rose-400">-{negatedRuleIds.length} Negated</strong>
+                    )}
                   </span>
                 </div>
-                <span className="font-mono text-[11px] text-slate-400">
-                  {totalFilteredCount} matching trade(s) update all KPIs and tables
-                </span>
+                <button
+                  onClick={() => {
+                    onSelectRuleIds([]);
+                    if (onNegateRuleIds) onNegateRuleIds([]);
+                  }}
+                  className="text-xs text-indigo-400 hover:text-white underline cursor-pointer"
+                >
+                  Clear All Rules
+                </button>
               </div>
             )}
           </div>

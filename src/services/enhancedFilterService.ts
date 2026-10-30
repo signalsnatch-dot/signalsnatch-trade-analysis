@@ -169,11 +169,41 @@ export class EnhancedFilterService {
   }
 
   /**
-   * Matches an analysis against rule combination and score range filters
+   * Match trade version against include and negate sets
+   */
+  static matchesVersionFilter(
+    version: string,
+    versionStates: Record<string, 'INCLUDE' | 'NEGATE' | 'NONE'>
+  ): boolean {
+    const v = (version || '').toLowerCase();
+    const includes = Object.entries(versionStates)
+      .filter(([_, state]) => state === 'INCLUDE')
+      .map(([k]) => k.toLowerCase());
+    const negates = Object.entries(versionStates)
+      .filter(([_, state]) => state === 'NEGATE')
+      .map(([k]) => k.toLowerCase());
+
+    // 1. If any negated version matches this trade, immediately reject
+    for (const neg of negates) {
+      if (v.includes(neg)) {
+        return false;
+      }
+    }
+
+    // 2. If any include versions are specified, trade MUST match at least one
+    if (includes.length > 0) {
+      return includes.some((inc) => v.includes(inc));
+    }
+
+    return true;
+  }
+
+  /**
+   * Matches an analysis against rule combination (including positive & negate rules) and score range filters
    */
   static matchesEnhancedFilters(
     analysis: TradeMilestoneAnalysis,
-    selectedRuleIds: string[],
+    selectedRuleIds: string[] | { passIds?: string[]; negateIds?: string[] },
     ruleMatchMode: 'ALL' | 'ANY',
     minScore: number = 0,
     maxScore: number = 100,
@@ -186,8 +216,11 @@ export class EnhancedFilterService {
       return false;
     }
 
+    const passIds = Array.isArray(selectedRuleIds) ? selectedRuleIds : (selectedRuleIds?.passIds || []);
+    const negateIds = Array.isArray(selectedRuleIds) ? [] : (selectedRuleIds?.negateIds || []);
+
     // Rules filter check
-    if (selectedRuleIds.length === 0) {
+    if (passIds.length === 0 && negateIds.length === 0) {
       return true;
     }
 
@@ -196,9 +229,14 @@ export class EnhancedFilterService {
     );
 
     if (ruleMatchMode === 'ALL') {
-      return selectedRuleIds.every((id) => achievedRuleIds.has(id));
+      const allPass = passIds.every((id) => achievedRuleIds.has(id));
+      const allNegate = negateIds.every((id) => !achievedRuleIds.has(id));
+      return allPass && allNegate;
     } else {
-      return selectedRuleIds.some((id) => achievedRuleIds.has(id));
+      // ANY mode: match at least one positive rule OR at least one negated rule
+      const passMatch = passIds.length > 0 && passIds.some((id) => achievedRuleIds.has(id));
+      const negateMatch = negateIds.length > 0 && negateIds.some((id) => !achievedRuleIds.has(id));
+      return passMatch || negateMatch;
     }
   }
 

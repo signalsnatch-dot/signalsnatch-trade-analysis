@@ -21,6 +21,7 @@ import {
   XCircle,
   BarChart2,
   SlidersHorizontal,
+  Ban,
 } from 'lucide-react';
 import { TradeMilestoneAnalysis, TradeGroup5Min } from '../types/trade.ts';
 import {
@@ -38,6 +39,7 @@ import { TradeNoteEditor } from './TradeNoteEditor.tsx';
 import { HighConfluenceAnalyticsCard } from './HighConfluenceAnalyticsCard.tsx';
 import { TradeNotesService } from '../services/tradeNotesService.ts';
 import { EnhancedRulesFilterControls } from './EnhancedRulesFilterControls.tsx';
+import { VersionFilterControl, VersionFilterMode } from './VersionFilterControl.tsx';
 
 interface Command2PanelProps {
   analyses: TradeMilestoneAnalysis[];
@@ -62,9 +64,17 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   const [versionPreset, setVersionPreset] = useState<'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all' | 'custom'>('ultra_uber');
   const [directionFilter, setDirectionFilter] = useState<'ALL' | 'BUY_STOP' | 'SELL_STOP'>('ALL');
   const [outcomeFilter, setOutcomeFilter] = useState<'ALL' | 'SUCCESS' | 'LOSS' | 'CANCELLED'>('ALL');
+  const [excludeCancelled, setExcludeCancelled] = useState<boolean>(false);
   const [m2Filter, setM2Filter] = useState<'ALL' | 'SAME_DAY' | 'MULTI_DAY' | 'PENDING'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
+
+  // Version Filter with Include & Negate support
+  const [versionStates, setVersionStates] = useState<Record<string, VersionFilterMode>>({
+    ULTRA: 'INCLUDE',
+    UBER: 'INCLUDE',
+    META_THURSDAY: 'NONE',
+  });
 
   // Breakdown & Loss/Profit filters
   const [breakdownType, setBreakdownType] = useState<'date' | 'dayOfWeek'>('date');
@@ -73,38 +83,39 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   const [onlyVolumeTrades, setOnlyVolumeTrades] = useState<boolean>(true);
   const [highConfluenceOnly, setHighConfluenceOnly] = useState<boolean>(false);
   const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [negatedRuleIds, setNegatedRuleIds] = useState<string[]>([]);
   const [ruleMatchMode, setRuleMatchMode] = useState<'ALL' | 'ANY'>('ALL');
   const [minScore, setMinScore] = useState<number>(0);
   const [maxScore, setMaxScore] = useState<number>(100);
 
-  // Handle Preset Clicks (Requirement 6: Include META_THURSDAY)
-  const handlePresetSelect = (preset: 'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all') => {
-    setVersionPreset(preset);
+  // Run Command 2 respecting active version include & negate sets
+  const handleRunCommand2WithVersionStates = () => {
+    const incs = Object.entries(versionStates).filter(([_, s]) => s === 'INCLUDE').map(([k]) => k);
+    const negs = Object.entries(versionStates).filter(([_, s]) => s === 'NEGATE').map(([k]) => k);
     let filters: string[] = [];
     let useAll = false;
 
-    if (preset === 'ultra_uber') {
-      filters = ['ULTRA', 'UBER'];
-    } else if (preset === 'meta_thursday') {
-      filters = ['META_THURSDAY'];
-    } else if (preset === 'ultra') {
-      filters = ['ULTRA'];
-    } else if (preset === 'uber') {
-      filters = ['UBER'];
-    } else if (preset === 'all') {
+    if (incs.length > 0) {
+      filters = incs;
+    } else if (negs.length > 0) {
+      useAll = true;
+    } else {
       useAll = true;
     }
 
     onRunCommand2({
-      versionFilters: filters,
-      useAllVersions: useAll,
+      versionFilters: filters.length > 0 ? filters : ['ULTRA', 'UBER'],
+      useAllVersions: useAll || filters.length === 0,
       volumeTradesOnly: onlyVolumeTrades,
     });
   };
 
   // Filter individual analyses on client side (Requirement 1: Cancelled Trades & Requirement 5: Profit Trades)
   const filteredAnalyses = useMemo(() => {
-    return analyses.filter((item) => {
+    // Deduplicate analyses upfront to eliminate any duplicated trade records
+    const uniqueAnalyses = Command2Service.deduplicateAnalyses(analyses);
+
+    return uniqueAnalyses.filter((item) => {
       const t = item.trade;
       const s = searchTerm.toLowerCase();
 
@@ -113,8 +124,17 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         t.instrument.toLowerCase().includes(s) ||
         t.version.toLowerCase().includes(s);
 
+      // Version filter with Include (+) and Negate (-) support
+      const matchesVersion = EnhancedFilterService.matchesVersionFilter(
+        t.version || '',
+        versionStates
+      );
+      if (!matchesVersion) return false;
+
+      const isCancelled = (t.status || '').toLowerCase() === 'cancelled';
+      if (excludeCancelled && isCancelled) return false;
+
       const matchesDir = directionFilter === 'ALL' || t.type === directionFilter;
-      const isCancelled = t.status === 'cancelled';
 
       const matchesOutcome =
         outcomeFilter === 'ALL' ||
@@ -134,7 +154,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
 
       const matchesEnhanced = EnhancedFilterService.matchesEnhancedFilters(
         item,
-        selectedRuleIds,
+        { passIds: selectedRuleIds, negateIds: negatedRuleIds },
         ruleMatchMode,
         minScore,
         maxScore,
@@ -146,11 +166,14 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   }, [
     analyses,
     searchTerm,
+    versionStates,
     directionFilter,
     outcomeFilter,
+    excludeCancelled,
     m2Filter,
     highConfluenceOnly,
     selectedRuleIds,
+    negatedRuleIds,
     ruleMatchMode,
     minScore,
     maxScore,
@@ -164,15 +187,20 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   // Requirement 2: Text summary of all active filters
   const activeFiltersString = useMemo(() => {
     const parts: string[] = [];
-    if (versionPreset !== 'all') parts.push(`Preset: ${versionPreset.toUpperCase()}`);
+    const incs = Object.entries(versionStates).filter(([_, s]) => s === 'INCLUDE').map(([k]) => `+${k}`);
+    const negs = Object.entries(versionStates).filter(([_, s]) => s === 'NEGATE').map(([k]) => `-${k}`);
+    if (incs.length > 0 || negs.length > 0) parts.push(`Versions: ${[...incs, ...negs].join(' ')}`);
     if (outcomeFilter !== 'ALL') parts.push(`Outcome: ${outcomeFilter}`);
+    if (excludeCancelled) parts.push('Cancelled: Excluded');
     if (directionFilter !== 'ALL') parts.push(`Direction: ${directionFilter}`);
     if (m2Filter !== 'ALL') parts.push(`M2: ${m2Filter}`);
-    if (selectedRuleIds.length > 0) parts.push(`Rules: ${selectedRuleIds.length} active (${ruleMatchMode})`);
+    if (selectedRuleIds.length > 0 || negatedRuleIds.length > 0) {
+      parts.push(`Rules: +${selectedRuleIds.length}, -${negatedRuleIds.length} (${ruleMatchMode})`);
+    }
     if (minScore > 0 || maxScore < 100) parts.push(`Score: ${minScore}%–${maxScore}%`);
     if (searchTerm) parts.push(`Search: "${searchTerm}"`);
     return parts.join(' | ') || 'All Filtered Trades';
-  }, [versionPreset, outcomeFilter, directionFilter, m2Filter, selectedRuleIds, ruleMatchMode, minScore, maxScore, searchTerm]);
+  }, [versionStates, outcomeFilter, excludeCancelled, directionFilter, m2Filter, selectedRuleIds, negatedRuleIds, ruleMatchMode, minScore, maxScore, searchTerm]);
 
   // Requirement 9: Dynamically compute summary and KPIs based strictly on filtered analyses!
   const activeSummary = useMemo(() => {
@@ -187,6 +215,8 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   // Requirement 2: Export filtered report reflecting all active filters, presets, and SMA/EMA indicators
   const exportFilteredReport = () => {
     if (filteredAnalyses.length === 0) return;
+    const uniqueToExport = Command2Service.deduplicateAnalyses(filteredAnalyses);
+
     const headers = [
       'version', 'instrument', 'name', 'type', 'status', 'is_cancelled', 'entry', 'sl', 'tp',
       'threshold', 'confidence', 'lot_size', 'trade_timestamp', 'trade_ist', 'expected_target',
@@ -208,7 +238,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       return s;
     };
 
-    const rows = filteredAnalyses.map((a) => {
+    const rows = uniqueToExport.map((a) => {
       const t = a.trade;
       const m1 = a.milestone1;
       const m2 = a.milestone2;
@@ -219,7 +249,8 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
 
       return [
         t.version, t.instrument, t.name, t.type, t.status || 'active', t.status === 'cancelled' ? 'YES' : 'NO',
-        t.entry, t.sl, t.tp, t.threshold, t.confidence ?? '', a.lotSizeUsed || 1, t.timestamp, a.entryIst,
+        Number(t.entry || 0).toFixed(2), Number(t.sl || 0).toFixed(2), Number(t.tp || 0).toFixed(2),
+        t.threshold, t.confidence ?? '', a.lotSizeUsed || 1, t.timestamp, a.entryIst,
         a.expectedTarget, a.isSuccess ? 'SUCCESS' : 'LOSS_ADVERSE', m1?.type || 'NEITHER', m1?.hitDate || a.dateStr,
         m1?.daysElapsed ?? '', m1?.candlesCount ?? '', m1?.timeTakenFormatted || '', m1 ? m1.ticks.toFixed(2) : '',
         m2?.type || 'NOT_REACHED', m2 ? (m2.achievedSameDay ? 'YES' : 'NO') : '', m2?.hitDate || '',
@@ -236,7 +267,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       ].map(escapeCsv).join(',');
     });
 
-    const csvContent = `# Filters Applied: ${activeFiltersString}\n# Generated IST: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })}\n# Total Filtered Trades: ${filteredAnalyses.length}\n` + [headers.join(','), ...rows].join('\n');
+    const csvContent = `# Filters Applied: ${activeFiltersString}\n# Generated IST: ${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Kolkata' })}\n# Total Unique Filtered Trades: ${uniqueToExport.length}\n` + [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -345,7 +376,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
             </a>
           )}
           <button
-            onClick={() => handlePresetSelect(versionPreset === 'custom' ? 'ultra_uber' : versionPreset)}
+            onClick={() => handleRunCommand2WithVersionStates()}
             disabled={isRunning}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-50 text-white font-semibold text-sm shadow-lg shadow-indigo-600/20 transition cursor-pointer"
           >
@@ -371,6 +402,8 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       <EnhancedRulesFilterControls
         selectedRuleIds={selectedRuleIds}
         onSelectRuleIds={setSelectedRuleIds}
+        negatedRuleIds={negatedRuleIds}
+        onNegateRuleIds={setNegatedRuleIds}
         ruleMatchMode={ruleMatchMode}
         onRuleMatchModeChange={setRuleMatchMode}
         minScore={minScore}
@@ -512,56 +545,13 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       {/* Preset Toolbar & Filter Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-          {/* Version Presets (Requirement 6: Include META_THURSDAY) */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              Presets:
-            </span>
-            <button
-              onClick={() => handlePresetSelect('ultra_uber')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                versionPreset === 'ultra_uber'
-                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-sm'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              Ultra & Uber (Default)
-            </button>
-            <button
-              onClick={() => handlePresetSelect('meta_thursday')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                versionPreset === 'meta_thursday'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              Meta Thursday
-            </button>
-            <button
-              onClick={() => handlePresetSelect('ultra')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                versionPreset === 'ultra' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              Ultra Only
-            </button>
-            <button
-              onClick={() => handlePresetSelect('uber')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                versionPreset === 'uber' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              Uber Only
-            </button>
-            <button
-              onClick={() => handlePresetSelect('all')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                versionPreset === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              All Versions ({availableVersions.length})
-            </button>
+          {/* Version Filter with Include & Negate support */}
+          <div className="w-full">
+            <VersionFilterControl
+              versionStates={versionStates}
+              onChangeVersionStates={setVersionStates}
+              availableVersions={availableVersions}
+            />
           </div>
 
           {/* Volume Filter Toggle (Requirement 4) */}
@@ -602,6 +592,21 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Remove / Exclude Cancelled trades toggle */}
+            <button
+              onClick={() => setExcludeCancelled((prev) => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer border ${
+                excludeCancelled
+                  ? 'bg-rose-950/70 text-rose-300 border-rose-800 shadow-sm'
+                  : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+              title="Remove/exclude cancelled trades from analysis, dashboard stats, and table"
+            >
+              <Ban className="w-3 h-3 text-rose-400" />
+              <span>Exclude Cancelled</span>
+              {excludeCancelled && <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />}
+            </button>
 
             <span className="text-slate-500 ml-2">Type:</span>
             <div className="bg-slate-950 p-0.5 rounded-lg border border-slate-800 flex">
