@@ -32,7 +32,7 @@ import { SettingsModal } from './components/SettingsModal.tsx';
 import { MarketDataManagerModal } from './components/MarketDataManagerModal.tsx';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'command1' | 'command2' | 'live' | 'signals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'command1' | 'command2' | 'live' | 'signals'>('command2');
   const [trades, setTrades] = useState<TradeSignal[]>([]);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [availableInstruments, setAvailableInstruments] = useState<string[]>([]);

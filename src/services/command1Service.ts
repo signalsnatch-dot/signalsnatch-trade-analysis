@@ -30,6 +30,10 @@ export interface Command1Result {
   totalCsvFiles: number;
   totalCandles: number;
   outputDirectory: string;
+  totalFilesProcessed?: number;
+  downloadedCount?: number;
+  errorCount?: number;
+  outputDir?: string;
 }
 
 export class Command1Service {

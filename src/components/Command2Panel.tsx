@@ -40,6 +40,32 @@ import { HighConfluenceAnalyticsCard } from './HighConfluenceAnalyticsCard.tsx';
 import { TradeNotesService } from '../services/tradeNotesService.ts';
 import { EnhancedRulesFilterControls } from './EnhancedRulesFilterControls.tsx';
 import { VersionFilterControl, VersionFilterMode } from './VersionFilterControl.tsx';
+import { UpstoxApiService } from '../services/upstoxApi.ts';
+
+export const getDayOfWeek = (dateStrOrTimestamp: string | number): string => {
+  if (!dateStrOrTimestamp) return '';
+  if (typeof dateStrOrTimestamp === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStrOrTimestamp)) {
+    const [y, m, d] = dateStrOrTimestamp.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return days[dt.getUTCDay()];
+  }
+  if (typeof dateStrOrTimestamp === 'number' && dateStrOrTimestamp > 0) {
+    const dt = new Date(dateStrOrTimestamp);
+    return dt.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'Asia/Kolkata' });
+  }
+  return '';
+};
+
+export const DAYS_OF_WEEK = [
+  { full: 'Monday', short: 'Mon' },
+  { full: 'Tuesday', short: 'Tue' },
+  { full: 'Wednesday', short: 'Wed' },
+  { full: 'Thursday', short: 'Thu' },
+  { full: 'Friday', short: 'Fri' },
+  { full: 'Saturday', short: 'Sat' },
+  { full: 'Sunday', short: 'Sun' },
+] as const;
 
 interface Command2PanelProps {
   analyses: TradeMilestoneAnalysis[];
@@ -69,6 +95,12 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null);
 
+  // Date Range & Date/Day Selection Filters
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [selectedDaysOfWeek, setSelectedDaysOfWeek] = useState<string[]>([]);
+
   // Version Filter with Include & Negate support
   const [versionStates, setVersionStates] = useState<Record<string, VersionFilterMode>>({
     ULTRA: 'INCLUDE',
@@ -87,6 +119,38 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   const [ruleMatchMode, setRuleMatchMode] = useState<'ALL' | 'ANY'>('ALL');
   const [minScore, setMinScore] = useState<number>(0);
   const [maxScore, setMaxScore] = useState<number>(100);
+
+  // Unique available dates in loaded analyses
+  const availableDates = useMemo(() => {
+    const datesSet = new Set<string>();
+    analyses.forEach((a) => {
+      if (a.dateStr) datesSet.add(a.dateStr);
+    });
+    return Array.from(datesSet).sort();
+  }, [analyses]);
+
+  // Trade count per date string
+  const tradeCountByDate = useMemo(() => {
+    const map: Record<string, number> = {};
+    analyses.forEach((a) => {
+      if (a.dateStr) {
+        map[a.dateStr] = (map[a.dateStr] || 0) + 1;
+      }
+    });
+    return map;
+  }, [analyses]);
+
+  // Trade count per day of week
+  const tradeCountByDayOfWeek = useMemo(() => {
+    const map: Record<string, number> = {};
+    analyses.forEach((a) => {
+      const day = getDayOfWeek(a.dateStr || a.trade.timestamp);
+      if (day) {
+        map[day] = (map[day] || 0) + 1;
+      }
+    });
+    return map;
+  }, [analyses]);
 
   // Run Command 2 respecting active version include & negate sets
   const handleRunCommand2WithVersionStates = () => {
@@ -110,7 +174,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     });
   };
 
-  // Filter individual analyses on client side (Requirement 1: Cancelled Trades & Requirement 5: Profit Trades)
+  // Filter individual analyses on client side
   const filteredAnalyses = useMemo(() => {
     // Deduplicate analyses upfront to eliminate any duplicated trade records
     const uniqueAnalyses = Command2Service.deduplicateAnalyses(analyses);
@@ -124,12 +188,27 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         t.instrument.toLowerCase().includes(s) ||
         t.version.toLowerCase().includes(s);
 
-      // Version filter with Include (+) and Negate (-) support
+      // Version filter
       const matchesVersion = EnhancedFilterService.matchesVersionFilter(
         t.version || '',
         versionStates
       );
       if (!matchesVersion) return false;
+
+      // 1. Date Range Filter (From Date -> To Date)
+      if (startDate && item.dateStr && item.dateStr < startDate) return false;
+      if (endDate && item.dateStr && item.dateStr > endDate) return false;
+
+      // 2. Specific Dates Filter (select any specific dates)
+      if (selectedDates.length > 0) {
+        if (!item.dateStr || !selectedDates.includes(item.dateStr)) return false;
+      }
+
+      // 3. Day of Week Filter
+      if (selectedDaysOfWeek.length > 0) {
+        const itemDay = getDayOfWeek(item.dateStr || t.timestamp);
+        if (!selectedDaysOfWeek.includes(itemDay)) return false;
+      }
 
       const isCancelled = (t.status || '').toLowerCase() === 'cancelled';
       if (excludeCancelled && isCancelled) return false;
@@ -167,6 +246,10 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     analyses,
     searchTerm,
     versionStates,
+    startDate,
+    endDate,
+    selectedDates,
+    selectedDaysOfWeek,
     directionFilter,
     outcomeFilter,
     excludeCancelled,
@@ -184,12 +267,15 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     return EnhancedFilterService.computeAggregatedAnalytics(filteredAnalyses);
   }, [filteredAnalyses]);
 
-  // Requirement 2: Text summary of all active filters
+  // Text summary of all active filters
   const activeFiltersString = useMemo(() => {
     const parts: string[] = [];
     const incs = Object.entries(versionStates).filter(([_, s]) => s === 'INCLUDE').map(([k]) => `+${k}`);
     const negs = Object.entries(versionStates).filter(([_, s]) => s === 'NEGATE').map(([k]) => `-${k}`);
     if (incs.length > 0 || negs.length > 0) parts.push(`Versions: ${[...incs, ...negs].join(' ')}`);
+    if (startDate || endDate) parts.push(`Range: ${startDate || 'Start'} to ${endDate || 'End'}`);
+    if (selectedDates.length > 0) parts.push(`Dates: ${selectedDates.join(', ')}`);
+    if (selectedDaysOfWeek.length > 0) parts.push(`Days of Week: ${selectedDaysOfWeek.map((d) => d.slice(0, 3)).join(', ')}`);
     if (outcomeFilter !== 'ALL') parts.push(`Outcome: ${outcomeFilter}`);
     if (excludeCancelled) parts.push('Cancelled: Excluded');
     if (directionFilter !== 'ALL') parts.push(`Direction: ${directionFilter}`);
@@ -200,9 +286,25 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     if (minScore > 0 || maxScore < 100) parts.push(`Score: ${minScore}%–${maxScore}%`);
     if (searchTerm) parts.push(`Search: "${searchTerm}"`);
     return parts.join(' | ') || 'All Filtered Trades';
-  }, [versionStates, outcomeFilter, excludeCancelled, directionFilter, m2Filter, selectedRuleIds, negatedRuleIds, ruleMatchMode, minScore, maxScore, searchTerm]);
+  }, [
+    versionStates,
+    startDate,
+    endDate,
+    selectedDates,
+    selectedDaysOfWeek,
+    outcomeFilter,
+    excludeCancelled,
+    directionFilter,
+    m2Filter,
+    selectedRuleIds,
+    negatedRuleIds,
+    ruleMatchMode,
+    minScore,
+    maxScore,
+    searchTerm,
+  ]);
 
-  // Requirement 9: Dynamically compute summary and KPIs based strictly on filtered analyses!
+  // Dynamically compute summary and KPIs based strictly on filtered analyses
   const activeSummary = useMemo(() => {
     if (!result) return null;
     return Command2Service.computeSummary(filteredAnalyses, {
@@ -212,14 +314,14 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     });
   }, [filteredAnalyses, result, activeFiltersString]);
 
-  // Requirement 2: Export filtered report reflecting all active filters, presets, and SMA/EMA indicators
+  // Export filtered report reflecting all active filters, presets, and SMA/EMA indicators
   const exportFilteredReport = () => {
     if (filteredAnalyses.length === 0) return;
     const uniqueToExport = Command2Service.deduplicateAnalyses(filteredAnalyses);
 
     const headers = [
       'version', 'instrument', 'name', 'type', 'status', 'is_cancelled', 'entry', 'sl', 'tp',
-      'threshold', 'confidence', 'lot_size', 'trade_timestamp', 'trade_ist', 'expected_target',
+      'threshold', 'confidence', 'lot_size', 'trade_timestamp', 'trade_ist', 'date_str', 'day_of_week', 'expected_target',
       'is_success', 'm1_hit_type', 'm1_hit_date', 'm1_days_elapsed', 'm1_candles_count',
       'm1_time_taken', 'm1_ticks', 'm2_hit_type', 'm2_achieved_same_day', 'm2_hit_date',
       'm2_days_elapsed', 'm2_time_taken', 'm2_ticks', 'max_loss_multiple', 'loss_multiple_before_entry_return',
@@ -251,6 +353,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         t.version, t.instrument, t.name, t.type, t.status || 'active', t.status === 'cancelled' ? 'YES' : 'NO',
         Number(t.entry || 0).toFixed(2), Number(t.sl || 0).toFixed(2), Number(t.tp || 0).toFixed(2),
         t.threshold, t.confidence ?? '', a.lotSizeUsed || 1, t.timestamp, a.entryIst,
+        a.dateStr, getDayOfWeek(a.dateStr || t.timestamp),
         a.expectedTarget, a.isSuccess ? 'SUCCESS' : 'LOSS_ADVERSE', m1?.type || 'NEITHER', m1?.hitDate || a.dateStr,
         m1?.daysElapsed ?? '', m1?.candlesCount ?? '', m1?.timeTakenFormatted || '', m1 ? m1.ticks.toFixed(2) : '',
         m2?.type || 'NOT_REACHED', m2 ? (m2.achievedSameDay ? 'YES' : 'NO') : '', m2?.hitDate || '',
@@ -392,6 +495,193 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
               </>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Prominent Command 2 Date & Weekday Filter Control Panel */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+              <Calendar className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                Date & Weekday Filters
+                {(startDate || endDate || selectedDates.length > 0 || selectedDaysOfWeek.length > 0) && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-800">
+                    Filter Active
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs text-slate-400">
+                Filter trades by date range, specific trading dates, or days of the week. Updates dashboard analytics and exported reports in real time.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono font-semibold text-slate-300 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800">
+              Filtered: <strong className="text-indigo-400">{filteredAnalyses.length}</strong> / {analyses.length} trades
+            </span>
+            {(startDate || endDate || selectedDates.length > 0 || selectedDaysOfWeek.length > 0) && (
+              <button
+                onClick={() => {
+                  setStartDate('');
+                  setEndDate('');
+                  setSelectedDates([]);
+                  setSelectedDaysOfWeek([]);
+                }}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-400 bg-rose-950/60 border border-rose-800 hover:bg-rose-900/60 transition cursor-pointer"
+              >
+                Reset Date Filters
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-xs">
+          {/* Column 1: Date Range Picker (From -> To) */}
+          <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                Date Range Picker
+              </span>
+              {(startDate || endDate) && (
+                <button
+                  onClick={() => {
+                    setStartDate('');
+                    setEndDate('');
+                  }}
+                  className="text-[10px] text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                >
+                  Clear Range
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1">From Date:</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 cursor-pointer"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-slate-400 block mb-1">To Date:</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-indigo-500 cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Column 2: Specific Date Selection Chips */}
+          <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2.5 lg:col-span-2">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-cyan-400" />
+                Select Specific Dates (Toggle Any Dates)
+              </span>
+              <button
+                onClick={() => setSelectedDates([])}
+                className={`text-[10px] px-2 py-0.5 rounded transition cursor-pointer ${
+                  selectedDates.length === 0 ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All Dates
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 max-h-28 overflow-y-auto pr-1">
+              {availableDates.map((dateStr) => {
+                const isSelected = selectedDates.includes(dateStr);
+                const dayName = getDayOfWeek(dateStr).slice(0, 3);
+                const count = tradeCountByDate[dateStr] || 0;
+                return (
+                  <button
+                    key={dateStr}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedDates(selectedDates.filter((d) => d !== dateStr));
+                      } else {
+                        setSelectedDates([...selectedDates, dateStr]);
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono transition cursor-pointer border ${
+                      isSelected
+                        ? 'bg-indigo-600 text-white border-indigo-400 font-bold shadow-sm'
+                        : 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
+                    }`}
+                    title={`Click to toggle ${dateStr} (${dayName})`}
+                  >
+                    <span>{dateStr}</span>
+                    <span className="text-[10px] text-slate-400 ml-1">({dayName})</span>
+                    <span className={`ml-1 px-1.5 py-0.2 rounded-full text-[10px] ${isSelected ? 'bg-indigo-800 text-indigo-100 font-bold' : 'bg-slate-800 text-slate-400'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3: Day of Week Filter */}
+        <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-slate-300 font-semibold flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              Filter by Weekday (Week of Day)
+            </span>
+            <button
+              onClick={() => setSelectedDaysOfWeek([])}
+              className={`text-[10px] px-2 py-0.5 rounded transition cursor-pointer ${
+                selectedDaysOfWeek.length === 0 ? 'bg-cyan-600 text-white font-semibold' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              All Weekdays
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {DAYS_OF_WEEK.map(({ full, short }) => {
+              const isSelected = selectedDaysOfWeek.includes(full);
+              const count = tradeCountByDayOfWeek[full] || 0;
+              return (
+                <button
+                  key={full}
+                  onClick={() => {
+                    if (isSelected) {
+                      setSelectedDaysOfWeek(selectedDaysOfWeek.filter((d) => d !== full));
+                    } else {
+                      setSelectedDaysOfWeek([...selectedDaysOfWeek, full]);
+                    }
+                  }}
+                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border flex items-center justify-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-cyan-600 text-white border-cyan-400 shadow-sm font-bold'
+                      : count > 0
+                      ? 'bg-slate-900 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
+                      : 'bg-slate-900/40 text-slate-600 border-slate-900 opacity-50'
+                  }`}
+                  title={`${full}: ${count} trade(s)`}
+                >
+                  <span>{short}</span>
+                  <span className={`text-[10px] ${isSelected ? 'text-cyan-100 font-bold' : 'text-slate-500'}`}>
+                    ({count})
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -1681,7 +1971,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                         <div className="font-semibold text-white">{item.trade.name || item.trade.instrument}</div>
                         <div className="text-[10px] text-cyan-400 font-mono">{item.trade.instrument}</div>
                       </td>
-                      <td className="py-3 px-3 text-slate-300">{item.dateStr}</td>
+                      <td className="py-3 px-3 text-slate-300">{(item as any).dateStr || UpstoxApiService.toISTDate(item.trade.timestamp)}</td>
                       <td className="py-3 px-3 font-semibold text-indigo-300">{item.trade.version}</td>
                       <td className="py-3 px-3">
                         <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -1699,7 +1989,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                       </td>
                       <td className="py-3 px-3">
                         <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/80">
-                          {item.incompleteReason || 'Missing CSV on Date'}
+                          {(item as any).incompleteReason || (item as any).reason || 'Missing CSV on Date'}
                         </span>
                       </td>
                     </tr>
