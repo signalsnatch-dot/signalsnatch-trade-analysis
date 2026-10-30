@@ -16,10 +16,11 @@ import { exec } from 'child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Support CLI --port argument or default to port 3000 as required by runtime environment
+// Support CLI --port argument or process.env.PORT or default to port 3000
 const portArgIdx = process.argv.indexOf('--port');
 const portFromArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? parseInt(process.argv[portArgIdx + 1], 10) : NaN;
-const PORT = !isNaN(portFromArg) ? portFromArg : 3000;
+const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : NaN;
+const PORT = !isNaN(portFromArg) ? portFromArg : (!isNaN(envPort) ? envPort : 3000);
 const SIGNALS_DIR = path.resolve(__dirname, 'signals');
 const MARKET_DATA_DIR = path.resolve(__dirname, 'market_data');
 const REPORTS_DIR = path.resolve(__dirname, 'reports');
@@ -631,12 +632,48 @@ app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) 
     res.json({ success: true, tokenSet: Boolean(activeUpstoxToken) });
   });
 
-  app.get('/api/config/status', async (req: Request, res: Response) => {
-    res.json({
-      tokenConfigured: Boolean(activeUpstoxToken),
-      upstoxApiOnline: true,
-      currentISTDate: UpstoxApiService.toISTDate(Date.now()),
-    });
+  // 12. Trade Notes Persistence
+  const TRADE_NOTES_FILE = path.resolve(__dirname, 'trade_notes.json');
+  function loadTradeNotes(): Record<string, string> {
+    try {
+      if (fs.existsSync(TRADE_NOTES_FILE)) {
+        const raw = fs.readFileSync(TRADE_NOTES_FILE, 'utf-8');
+        return JSON.parse(raw);
+      }
+    } catch {
+      // Ignore
+    }
+    return {};
+  }
+
+  app.get('/api/trade-notes', (_req: Request, res: Response) => {
+    try {
+      const notes = loadTradeNotes();
+      res.json({ success: true, notes });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/trade-notes', (req: Request, res: Response) => {
+    try {
+      const noteKey = req.body.key || req.body.tradeKey;
+      const { note } = req.body;
+      if (!noteKey) {
+        return res.status(400).json({ error: 'Missing note key' });
+      }
+      const notes = loadTradeNotes();
+      const trimmed = (note || '').trim();
+      if (trimmed) {
+        notes[noteKey] = trimmed;
+      } else {
+        delete notes[noteKey];
+      }
+      fs.writeFileSync(TRADE_NOTES_FILE, JSON.stringify(notes, null, 2), 'utf-8');
+      res.json({ success: true, notesCount: Object.keys(notes).length });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // Mount Vite middleware in dev or static files in production

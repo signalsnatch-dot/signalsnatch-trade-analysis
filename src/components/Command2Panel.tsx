@@ -32,6 +32,12 @@ import {
   ClassifiedTicksSummary,
 } from '../services/command2Service.ts';
 import { KpiCards } from './KpiCards.tsx';
+import { EnhancedFilterService } from '../services/enhancedFilterService.ts';
+import { EnhancedFilterBadge } from './EnhancedFilterBadge.tsx';
+import { TradeNoteEditor } from './TradeNoteEditor.tsx';
+import { HighConfluenceAnalyticsCard } from './HighConfluenceAnalyticsCard.tsx';
+import { TradeNotesService } from '../services/tradeNotesService.ts';
+import { EnhancedRulesFilterControls } from './EnhancedRulesFilterControls.tsx';
 
 interface Command2PanelProps {
   analyses: TradeMilestoneAnalysis[];
@@ -65,6 +71,11 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
   const [lossVersionFilter, setLossVersionFilter] = useState<'ALL' | 'UBER' | 'ULTRA' | 'META_THURSDAY'>('ALL');
   const [profitVersionFilter, setProfitVersionFilter] = useState<'ALL' | 'UBER' | 'ULTRA' | 'META_THURSDAY'>('ALL');
   const [onlyVolumeTrades, setOnlyVolumeTrades] = useState<boolean>(true);
+  const [highConfluenceOnly, setHighConfluenceOnly] = useState<boolean>(false);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [ruleMatchMode, setRuleMatchMode] = useState<'ALL' | 'ANY'>('ALL');
+  const [minScore, setMinScore] = useState<number>(0);
+  const [maxScore, setMaxScore] = useState<number>(100);
 
   // Handle Preset Clicks (Requirement 6: Include META_THURSDAY)
   const handlePresetSelect = (preset: 'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all') => {
@@ -117,9 +128,38 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         (m2Filter === 'MULTI_DAY' && item.milestone2 && !item.milestone2.achievedSameDay && item.milestone2.type !== 'PENDING') ||
         (m2Filter === 'PENDING' && item.milestone2?.type === 'PENDING');
 
-      return matchesSearch && matchesDir && matchesOutcome && matchesM2;
+      const matchesHighConfluence =
+        !highConfluenceOnly ||
+        EnhancedFilterService.evaluate(item, analyses).isHighConfluence;
+
+      const matchesEnhanced = EnhancedFilterService.matchesEnhancedFilters(
+        item,
+        selectedRuleIds,
+        ruleMatchMode,
+        minScore,
+        maxScore,
+        analyses
+      );
+
+      return matchesSearch && matchesDir && matchesOutcome && matchesM2 && matchesHighConfluence && matchesEnhanced;
     });
-  }, [analyses, searchTerm, directionFilter, outcomeFilter, m2Filter]);
+  }, [
+    analyses,
+    searchTerm,
+    directionFilter,
+    outcomeFilter,
+    m2Filter,
+    highConfluenceOnly,
+    selectedRuleIds,
+    ruleMatchMode,
+    minScore,
+    maxScore,
+  ]);
+
+  // Enhanced aggregated analytics for Score >= 85% breakdown (reflects active filtered trades)
+  const enhancedAnalyticsSummary = useMemo(() => {
+    return EnhancedFilterService.computeAggregatedAnalytics(filteredAnalyses);
+  }, [filteredAnalyses]);
 
   // Requirement 2: Text summary of all active filters
   const activeFiltersString = useMemo(() => {
@@ -128,9 +168,11 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
     if (outcomeFilter !== 'ALL') parts.push(`Outcome: ${outcomeFilter}`);
     if (directionFilter !== 'ALL') parts.push(`Direction: ${directionFilter}`);
     if (m2Filter !== 'ALL') parts.push(`M2: ${m2Filter}`);
+    if (selectedRuleIds.length > 0) parts.push(`Rules: ${selectedRuleIds.length} active (${ruleMatchMode})`);
+    if (minScore > 0 || maxScore < 100) parts.push(`Score: ${minScore}%–${maxScore}%`);
     if (searchTerm) parts.push(`Search: "${searchTerm}"`);
     return parts.join(' | ') || 'All Filtered Trades';
-  }, [versionPreset, outcomeFilter, directionFilter, m2Filter, searchTerm]);
+  }, [versionPreset, outcomeFilter, directionFilter, m2Filter, selectedRuleIds, ruleMatchMode, minScore, maxScore, searchTerm]);
 
   // Requirement 9: Dynamically compute summary and KPIs based strictly on filtered analyses!
   const activeSummary = useMemo(() => {
@@ -154,7 +196,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       'max_profit_multiple', 'profit_multiple_before_return', 'sl_cross_count', 'tp_cross_count',
       'entry_cross_count', 'loss_entry_time', 'loss_m1_time', 'drawdown_ticks', 'drawdown_time',
       'entry_sma_fast', 'entry_sma_slow', 'entry_ema_20', 'candle_direction', 'candle_position_wrt_ma',
-      'sma_crossover_state', 'sma_crossover_prior_candles', 'sma_crossover_ended_in_candles', 'm2_notes'
+      'sma_crossover_state', 'sma_crossover_prior_candles', 'sma_crossover_ended_in_candles',
+      'enhanced_engine', 'enhanced_score', 'is_high_confluence', 'achieved_rules', 'missed_rules', 'user_note',
+      'm2_notes'
     ];
 
     const escapeCsv = (val: unknown): string => {
@@ -170,6 +214,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       const m2 = a.milestone2;
       const dd = a.drawdown;
       const ind = a.entryIndicators;
+      const evalResult = EnhancedFilterService.evaluate(a, analyses);
+      const note = TradeNotesService.getNoteForTrade(t);
+
       return [
         t.version, t.instrument, t.name, t.type, t.status || 'active', t.status === 'cancelled' ? 'YES' : 'NO',
         t.entry, t.sl, t.tp, t.threshold, t.confidence ?? '', a.lotSizeUsed || 1, t.timestamp, a.entryIst,
@@ -183,6 +230,8 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         dd.drawdownTicks.toFixed(2), dd.drawdownTimeFormatted, ind ? ind.smaFast : '', ind ? ind.smaSlow : '',
         ind ? ind.ema20 : '', ind ? ind.candleDirection : '', ind ? ind.candlePositionWrtMa : '', ind ? ind.crossoverState : '',
         ind ? ind.crossoverCandlesPrior : '', ind ? (ind.crossoverEndedInCandles !== null ? ind.crossoverEndedInCandles : 'Persisted') : '',
+        evalResult.engineType, `${evalResult.score}%`, evalResult.isHighConfluence ? 'YES' : 'NO',
+        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), note,
         m2?.notes || ''
       ].map(escapeCsv).join(',');
     });
@@ -317,6 +366,45 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
 
       {/* KPI Cards (Requirement 9: Dynamically updates to filteredAnalyses activeSummary!) */}
       <KpiCards summary={activeSummary} totalLoadedTrades={totalLoadedTrades} />
+
+      {/* Enhanced Rule Combination & Score Range Filter Controls */}
+      <EnhancedRulesFilterControls
+        selectedRuleIds={selectedRuleIds}
+        onSelectRuleIds={setSelectedRuleIds}
+        ruleMatchMode={ruleMatchMode}
+        onRuleMatchModeChange={setRuleMatchMode}
+        minScore={minScore}
+        maxScore={maxScore}
+        onScoreRangeChange={(min, max) => {
+          setMinScore(min);
+          setMaxScore(max);
+          if (min >= 85) {
+            setHighConfluenceOnly(true);
+          } else if (highConfluenceOnly) {
+            setHighConfluenceOnly(false);
+          }
+        }}
+        totalFilteredCount={filteredAnalyses.length}
+        totalAvailableCount={analyses.length}
+        titlePrefix="Command 2: Enhanced Rules & Score Range Filter"
+      />
+
+      {/* High Confluence Analytics Breakdown (Score >= 85%) */}
+      <HighConfluenceAnalyticsCard
+        summary={enhancedAnalyticsSummary}
+        isFilterActive={highConfluenceOnly || minScore >= 85}
+        onToggleFilter={() => {
+          if (highConfluenceOnly || minScore >= 85) {
+            setHighConfluenceOnly(false);
+            setMinScore(0);
+            setMaxScore(100);
+          } else {
+            setHighConfluenceOnly(true);
+            setMinScore(85);
+            setMaxScore(100);
+          }
+        }}
+      />
 
       {/* Navigation View Switcher Tabs */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
@@ -544,6 +632,31 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Score >= 85% Toggle */}
+            <button
+              onClick={() => {
+                const next = !highConfluenceOnly && minScore < 85;
+                setHighConfluenceOnly(next);
+                if (next) {
+                  setMinScore(85);
+                  setMaxScore(100);
+                } else {
+                  setMinScore(0);
+                  setMaxScore(100);
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                highConfluenceOnly || minScore >= 85
+                  ? 'bg-emerald-600 text-white border-emerald-500 shadow-sm'
+                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:text-white hover:bg-slate-800'
+              }`}
+              title="Filter trades meeting strict historical confluence rules (Score >= 85%)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Score ≥ 85% Only</span>
+              {(highConfluenceOnly || minScore >= 85) && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />}
+            </button>
           </div>
         )}
       </div>
@@ -710,19 +823,22 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                   <th className="py-3 px-3 font-sans">Instrument / Version</th>
                   <th className="py-3 px-3 text-right">Entry Price</th>
                   <th className="py-3 px-3 text-center">Goal Hit (M1)</th>
+                  <th className="py-3 px-3 bg-indigo-950/20 text-indigo-300 font-sans">Enhanced Rules & Score</th>
                   <th className="py-3 px-3 text-slate-300">Signal Entry (IST)</th>
                   <th className="py-3 px-3 text-emerald-300">Hit Time (IST)</th>
                   <th className="py-3 px-3 text-cyan-300">Time to Win</th>
-                  <th className="py-3 px-3 text-right text-emerald-400">Max Profit Multiple</th>
+                  <th className="py-3 px-3 text-right text-emerald-400">Max Profit</th>
                   <th className="py-3 px-3 text-right text-emerald-300">Before Return</th>
+                  <th className="py-3 px-3 text-slate-400">Crossings (SL/TP/Entry)</th>
                   <th className="py-3 px-3 text-slate-300 font-sans">Entry MAs & Crossover</th>
+                  <th className="py-3 px-3 text-center font-sans">Notes</th>
                   <th className="py-3 px-3 text-center font-sans">Chart</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
                 {filteredProfitTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
+                    <td colSpan={13} className="py-12 text-center text-slate-500 font-sans">
                       No profit trades recorded matching the selected filter.
                     </td>
                   </tr>
@@ -732,6 +848,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                     const matchedAnalysis = analyses.find(
                       (a) => a.trade.instrument === pt.instrument && a.dateStr === pt.dateStr
                     );
+                    const evalResult = matchedAnalysis
+                      ? EnhancedFilterService.evaluate(matchedAnalysis, analyses)
+                      : null;
 
                     return (
                       <tr key={`${pt.instrument}_${pt.entryTimeIST}_${idx}`} className="hover:bg-slate-800/40 transition">
@@ -769,6 +888,15 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                           </span>
                         </td>
 
+                        {/* Enhanced Rules & Score */}
+                        <td className="py-3 px-3 bg-indigo-950/10 font-sans">
+                          {evalResult ? (
+                            <EnhancedFilterBadge evaluation={evalResult} />
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+
                         <td className="py-3 px-3 text-slate-300 whitespace-nowrap">{pt.entryTimeIST}</td>
                         <td className="py-3 px-3 text-emerald-300 font-bold whitespace-nowrap">{pt.m1HitTimeIST}</td>
                         <td className="py-3 px-3 text-cyan-400 whitespace-nowrap">{pt.durationFormatted}</td>
@@ -779,6 +907,18 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
 
                         <td className="py-3 px-3 text-right font-bold text-emerald-300">
                           {pt.profitBeforeReturn.toFixed(2)}x
+                        </td>
+
+                        <td className="py-3 px-3 text-[11px] text-slate-400 whitespace-nowrap">
+                          {matchedAnalysis?.drawdown ? (
+                            <span>
+                              SL: <span className="text-rose-400">{matchedAnalysis.drawdown.slCrossCount}</span> • TP:{' '}
+                              <span className="text-emerald-400">{matchedAnalysis.drawdown.tpCrossCount}</span> • Entry:{' '}
+                              <span className="text-cyan-400">{matchedAnalysis.drawdown.entryCrossCount}</span>
+                            </span>
+                          ) : (
+                            <span>-</span>
+                          )}
                         </td>
 
                         <td className="py-3 px-3 text-[11px] font-sans">
@@ -795,6 +935,13 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                             </div>
                           ) : (
                             <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+
+                        {/* Trade Note */}
+                        <td className="py-3 px-3 text-center">
+                          {matchedAnalysis && (
+                            <TradeNoteEditor trade={matchedAnalysis.trade} compact={true} />
                           )}
                         </td>
 
@@ -862,19 +1009,22 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                   <th className="py-3 px-3 font-sans">Instrument / Version</th>
                   <th className="py-3 px-3 text-right">Entry Price</th>
                   <th className="py-3 px-3 text-center">Goal vs Adverse M1</th>
+                  <th className="py-3 px-3 bg-indigo-950/20 text-indigo-300 font-sans">Enhanced Rules & Score</th>
                   <th className="py-3 px-3 text-slate-300">Signal Entry Time (IST)</th>
-                  <th className="py-3 px-3 text-rose-300">Loss Milestone Hit Time (IST)</th>
+                  <th className="py-3 px-3 text-rose-300">Loss Hit Time (IST)</th>
                   <th className="py-3 px-3 text-cyan-300">Time to Loss</th>
                   <th className="py-3 px-3 text-right">Max Loss Multiple</th>
                   <th className="py-3 px-3 text-right text-amber-300">Before Return</th>
                   <th className="py-3 px-3 text-slate-400">Crossings (SL/TP/Entry)</th>
+                  <th className="py-3 px-3 text-slate-300 font-sans">Entry MAs & Crossover</th>
+                  <th className="py-3 px-3 text-center font-sans">Notes</th>
                   <th className="py-3 px-3 text-center font-sans">Chart</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-200">
                 {filteredLossTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
+                    <td colSpan={13} className="py-12 text-center text-slate-500 font-sans">
                       No loss trades recorded matching the selected filter.
                     </td>
                   </tr>
@@ -884,6 +1034,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                     const matchedAnalysis = analyses.find(
                       (a) => a.trade.instrument === lt.instrument && a.dateStr === lt.dateStr
                     );
+                    const evalResult = matchedAnalysis
+                      ? EnhancedFilterService.evaluate(matchedAnalysis, analyses)
+                      : null;
 
                     return (
                       <tr key={`${lt.instrument}_${lt.entryTimeIST}_${idx}`} className="hover:bg-slate-800/40 transition">
@@ -922,6 +1075,15 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                           </div>
                         </td>
 
+                        {/* Enhanced Rules & Score */}
+                        <td className="py-3 px-3 bg-indigo-950/10 font-sans">
+                          {evalResult ? (
+                            <EnhancedFilterBadge evaluation={evalResult} />
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+
                         <td className="py-3 px-3 text-slate-300 whitespace-nowrap">{lt.entryTimeIST}</td>
 
                         <td className="py-3 px-3 text-rose-300 font-bold whitespace-nowrap">
@@ -942,6 +1104,31 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                           SL: <span className="text-rose-400">{lt.slCrossCount}</span> • TP:{' '}
                           <span className="text-emerald-400">{lt.tpCrossCount}</span> • Entry:{' '}
                           <span className="text-cyan-400">{lt.entryCrossCount}</span>
+                        </td>
+
+                        {/* Complete Entry MAs & Crossover */}
+                        <td className="py-3 px-3 text-[11px] font-sans">
+                          {matchedAnalysis?.entryIndicators ? (
+                            <div>
+                              <div className="text-slate-300 font-mono text-[10px]">
+                                SMA9: {matchedAnalysis.entryIndicators.smaFast} | SMA21: {matchedAnalysis.entryIndicators.smaSlow} | EMA20: {matchedAnalysis.entryIndicators.ema20}
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                <span className={matchedAnalysis.entryIndicators.crossoverState === 'BULLISH' ? 'text-emerald-400 font-semibold' : 'text-rose-400 font-semibold'}>
+                                  {matchedAnalysis.entryIndicators.crossoverState}
+                                </span> ({matchedAnalysis.entryIndicators.crossoverCandlesPrior}b prior • {matchedAnalysis.entryIndicators.crossoverEndedInCandles ? `flip in ${matchedAnalysis.entryIndicators.crossoverEndedInCandles}b` : 'persisted'})
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-500">-</span>
+                          )}
+                        </td>
+
+                        {/* Trade Note */}
+                        <td className="py-3 px-3 text-center">
+                          {matchedAnalysis && (
+                            <TradeNoteEditor trade={matchedAnalysis.trade} compact={true} />
+                          )}
                         </td>
 
                         <td className="py-3 px-3 text-center">
@@ -1020,10 +1207,12 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                   <th className="py-3 px-3">Entry IST</th>
                   <th className="py-3 px-3 text-right">Levels</th>
                   <th className="py-3 px-3 text-center">Goal & Result</th>
+                  <th className="py-3 px-3 bg-indigo-950/20 text-indigo-300">Enhanced Rules & Score</th>
                   <th className="py-3 px-3 bg-indigo-950/20 text-indigo-300">Milestone 1 (Hit First)</th>
                   <th className="py-3 px-3 bg-purple-950/20 text-purple-300">Milestone 2 (Follow-Through)</th>
                   <th className="py-3 px-3 bg-emerald-950/20 text-emerald-300">Max Profit / Loss & Crossings</th>
                   <th className="py-3 px-3 bg-slate-950 text-slate-300 font-sans">Entry MAs & Crossover</th>
+                  <th className="py-3 px-3 text-center">Notes</th>
                   <th className="py-3 px-3 text-center">Chart</th>
                 </tr>
               </thead>
@@ -1087,9 +1276,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                       <td className="py-3 px-3 text-right font-mono">
                         <div className="text-white font-semibold">{t.entry.toFixed(2)}</div>
                         <div className="text-[10px] text-slate-400 space-x-1">
-                          <span className="text-rose-400">SL {t.sl.toFixed(1)}</span>
+                          <span className="text-rose-400">SL {t.sl.toFixed(2)}</span>
                           <span>/</span>
-                          <span className="text-emerald-400">TP {t.tp.toFixed(1)}</span>
+                          <span className="text-emerald-400">TP {t.tp.toFixed(2)}</span>
                         </div>
                       </td>
 
@@ -1117,6 +1306,13 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                             </>
                           )}
                         </span>
+                      </td>
+
+                      {/* Enhanced Rules & Score */}
+                      <td className="py-3 px-3 bg-indigo-950/10">
+                        <EnhancedFilterBadge
+                          evaluation={EnhancedFilterService.evaluate(item, analyses)}
+                        />
                       </td>
 
                       {/* Milestone 1 */}
@@ -1258,6 +1454,11 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                         )}
                       </td>
 
+                      {/* Notes Column */}
+                      <td className="py-3 px-3 text-center">
+                        <TradeNoteEditor trade={t} compact={true} />
+                      </td>
+
                       {/* Chart Button */}
                       <td className="py-3 px-3 text-center">
                         <button
@@ -1274,7 +1475,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
 
                 {filteredAnalyses.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-slate-500 font-sans">
+                    <td colSpan={11} className="py-12 text-center text-slate-500 font-sans">
                       No analyzed trades match the selected criteria.
                     </td>
                   </tr>
@@ -1374,8 +1575,8 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                                   </td>
                                   <td className="py-2.5 px-3 text-right text-white">{t.entry.toFixed(2)}</td>
                                   <td className="py-2.5 px-3 text-right">
-                                    <span className="text-rose-400">{t.sl.toFixed(1)}</span> /{' '}
-                                    <span className="text-emerald-400">{t.tp.toFixed(1)}</span>
+                                    <span className="text-rose-400">{t.sl.toFixed(2)}</span> /{' '}
+                                    <span className="text-emerald-400">{t.tp.toFixed(2)}</span>
                                   </td>
                                   <td className="py-2.5 px-3 text-center">
                                     <span

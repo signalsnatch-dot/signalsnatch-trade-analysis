@@ -17,6 +17,11 @@ import {
 import { TradeSignal, TradeMilestoneAnalysis } from '../types/trade.ts';
 import { UpstoxApiService } from '../services/upstoxApi.ts';
 import { getInstrumentConfig } from '../config/instrumentConfig.ts';
+import { EnhancedFilterService } from '../services/enhancedFilterService.ts';
+import { EnhancedFilterBadge } from './EnhancedFilterBadge.tsx';
+import { TradeNoteEditor } from './TradeNoteEditor.tsx';
+import { HighConfluenceAnalyticsCard } from './HighConfluenceAnalyticsCard.tsx';
+import { EnhancedRulesFilterControls } from './EnhancedRulesFilterControls.tsx';
 
 interface LiveTrackerPanelProps {
   onOpenChart: (analysis: TradeMilestoneAnalysis) => void;
@@ -58,6 +63,11 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   // Version filter presets for live pipeline: ultra_uber, meta_thursday, ultra, uber, all
   const [selectedPreset, setSelectedPreset] = useState<'ultra_uber' | 'meta_thursday' | 'ultra' | 'uber' | 'all'>('ultra_uber');
   const [outcomeFilter, setOutcomeFilter] = useState<'ALL' | 'PROFIT' | 'LOSS' | 'CANCELLED'>('ALL');
+  const [showHighConfluenceOnly, setShowHighConfluenceOnly] = useState(false);
+  const [selectedRuleIds, setSelectedRuleIds] = useState<string[]>([]);
+  const [ruleMatchMode, setRuleMatchMode] = useState<'ALL' | 'ANY'>('ALL');
+  const [minScore, setMinScore] = useState<number>(0);
+  const [maxScore, setMaxScore] = useState<number>(100);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Active Date for Live Tracker (Defaults to current IST date)
@@ -274,17 +284,47 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
 
       // 2. Outcome / Status filter
       if (outcomeFilter === 'PROFIT') {
-        return a.isSuccess;
+        if (!a.isSuccess) return false;
+      } else if (outcomeFilter === 'LOSS') {
+        if (a.isSuccess || a.milestone1 === null) return false;
+      } else if (outcomeFilter === 'CANCELLED') {
+        if ((a.trade.status || '').toLowerCase() !== 'cancelled') return false;
       }
-      if (outcomeFilter === 'LOSS') {
-        return !a.isSuccess && a.milestone1 !== null;
+
+      // 3. High Confluence filter shortcut (Score >= 85%)
+      if (showHighConfluenceOnly) {
+        const evaluation = EnhancedFilterService.evaluate(a, liveAnalyses);
+        if (!evaluation.isHighConfluence) return false;
       }
-      if (outcomeFilter === 'CANCELLED') {
-        return (a.trade.status || '').toLowerCase() === 'cancelled';
-      }
+
+      // 4. Specific Enhanced Rule(s) and Score Range Filter
+      const matchesEnhanced = EnhancedFilterService.matchesEnhancedFilters(
+        a,
+        selectedRuleIds,
+        ruleMatchMode,
+        minScore,
+        maxScore,
+        liveAnalyses
+      );
+      if (!matchesEnhanced) return false;
+
       return true;
     });
-  }, [liveAnalyses, selectedPreset, outcomeFilter]);
+  }, [
+    liveAnalyses,
+    selectedPreset,
+    outcomeFilter,
+    showHighConfluenceOnly,
+    selectedRuleIds,
+    ruleMatchMode,
+    minScore,
+    maxScore,
+  ]);
+
+  // Enhanced aggregated analytics for Score >= 85% breakdown (reflecting active filtered trades)
+  const enhancedSummary = useMemo(() => {
+    return EnhancedFilterService.computeAggregatedAnalytics(displayedAnalyses);
+  }, [displayedAnalyses]);
 
   // Derived live KPI statistics strictly reflecting the filtered analyses (Requirement 7, 8, 9)
   const totalAnalyzed = displayedAnalyses.length;
@@ -532,6 +572,45 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         )}
       </div>
 
+      {/* Enhanced Rule Combination & Score Range Filter Controls */}
+      <EnhancedRulesFilterControls
+        selectedRuleIds={selectedRuleIds}
+        onSelectRuleIds={setSelectedRuleIds}
+        ruleMatchMode={ruleMatchMode}
+        onRuleMatchModeChange={setRuleMatchMode}
+        minScore={minScore}
+        maxScore={maxScore}
+        onScoreRangeChange={(min, max) => {
+          setMinScore(min);
+          setMaxScore(max);
+          if (min >= 85) {
+            setShowHighConfluenceOnly(true);
+          } else if (showHighConfluenceOnly) {
+            setShowHighConfluenceOnly(false);
+          }
+        }}
+        totalFilteredCount={displayedAnalyses.length}
+        totalAvailableCount={liveAnalyses.length}
+        titlePrefix="Live Tracker: Enhanced Rules & Score Range Filter"
+      />
+
+      {/* High Confluence (Score >= 85%) Analytics Card */}
+      <HighConfluenceAnalyticsCard
+        summary={enhancedSummary}
+        isFilterActive={showHighConfluenceOnly || minScore >= 85}
+        onToggleFilter={() => {
+          if (showHighConfluenceOnly || minScore >= 85) {
+            setShowHighConfluenceOnly(false);
+            setMinScore(0);
+            setMaxScore(100);
+          } else {
+            setShowHighConfluenceOnly(true);
+            setMinScore(85);
+            setMaxScore(100);
+          }
+        }}
+      />
+
       {/* Live KPI Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
@@ -605,17 +684,19 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                 <th className="py-3 px-3">Trade / Version</th>
                 <th className="py-3 px-3">Signal IST Time</th>
                 <th className="py-3 px-3">Entry / SL / TP</th>
+                <th className="py-3 px-3 bg-indigo-950/20 text-indigo-300">Enhanced Rules & Score</th>
                 <th className="py-3 px-3">Milestone 1</th>
                 <th className="py-3 px-3">M1 Time / Ticks</th>
                 <th className="py-3 px-3">Milestone 2</th>
                 <th className="py-3 px-3">Max Profit / Loss & Crossings</th>
+                <th className="py-3 px-3 text-center">Notes</th>
                 <th className="py-3 px-3 text-right">Chart</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-850 font-mono">
               {displayedAnalyses.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500 font-sans">
+                  <td colSpan={10} className="py-12 text-center text-slate-500 font-sans">
                     No trades match the current preset ({selectedPreset}) and outcome filter ({outcomeFilter}).
                   </td>
                 </tr>
@@ -627,6 +708,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                   const isUber = vLower.includes('uber');
                   const isMetaThursday = vLower.includes('meta_thursday');
                   const isCancelled = (trade.status || '').toLowerCase() === 'cancelled';
+                  const enhancedEval = EnhancedFilterService.evaluate(analysis, liveAnalyses);
 
                   return (
                     <tr
@@ -685,19 +767,24 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                           );
                         })()}
 
-                        {/* Entry MAs & Crossover summary if available */}
+                        {/* Complete Entry MAs, Crossover & Reversal status */}
                         {entryIndicators && (
                           <div className="mt-1 text-[10px] text-slate-400 font-sans flex items-center gap-1.5 flex-wrap">
                             <span className="text-amber-400 font-mono">SMA9:{entryIndicators.smaFast.toFixed(1)}</span>
                             <span className="text-purple-400 font-mono">SMA21:{entryIndicators.smaSlow.toFixed(1)}</span>
+                            <span className="text-cyan-400 font-mono">EMA20:{entryIndicators.ema20.toFixed(1)}</span>
+                            <span className="text-slate-300 font-mono">Pos:{entryIndicators.candlePositionWrtMa}</span>
                             <span
                               className={`px-1 rounded text-[9px] font-bold ${
                                 entryIndicators.crossoverState === 'BULLISH'
-                                  ? 'bg-emerald-950 text-emerald-300'
-                                  : 'bg-rose-950 text-rose-300'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
+                                  : 'bg-rose-950 text-rose-300 border border-rose-800'
                               }`}
                             >
-                              {entryIndicators.crossoverState} ({entryIndicators.crossoverCandlesPrior}b)
+                              {entryIndicators.crossoverState}
+                            </span>
+                            <span className="text-slate-500 text-[9px]">
+                              ({entryIndicators.crossoverCandlesPrior}b prior • {entryIndicators.crossoverEndedInCandles ? `flip in ${entryIndicators.crossoverEndedInCandles}b` : 'persisted'})
                             </span>
                           </div>
                         )}
@@ -712,12 +799,17 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                       {/* Prices */}
                       <td className="py-3 px-3">
                         <div className="text-slate-200">
-                          Entry: <span className="text-white font-bold">{trade.entry}</span>
+                          Entry: <span className="text-white font-bold">{Number(trade.entry || 0).toFixed(2)}</span>
                         </div>
                         <div className="text-[11px] text-slate-400 flex items-center gap-2">
-                          <span className="text-rose-400">SL: {trade.sl}</span>
-                          <span className="text-emerald-400">TP: {trade.tp}</span>
+                          <span className="text-rose-400">SL: {Number(trade.sl || 0).toFixed(2)}</span>
+                          <span className="text-emerald-400">TP: {Number(trade.tp || 0).toFixed(2)}</span>
                         </div>
+                      </td>
+
+                      {/* Enhanced Rules & Score */}
+                      <td className="py-3 px-3 bg-indigo-950/10">
+                        <EnhancedFilterBadge evaluation={enhancedEval} />
                       </td>
 
                       {/* Milestone 1 */}
@@ -816,6 +908,11 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
                         <div className="text-slate-400 text-[10px] mt-0.5 pt-0.5 border-t border-slate-800/60">
                           Crossings — SL: {drawdown.slCrossCount}x • TP: {drawdown.tpCrossCount}x • Entry: {drawdown.entryCrossCount}x
                         </div>
+                      </td>
+
+                      {/* Trade Note */}
+                      <td className="py-3 px-3 text-center">
+                        <TradeNoteEditor trade={trade} compact={true} />
                       </td>
 
                       {/* Chart launcher */}
