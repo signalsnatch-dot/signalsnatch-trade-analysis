@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { TradeSignal, DayInstrumentAccumulation, Candle } from '../types/trade.ts';
 import { UpstoxApiService } from './upstoxApi.ts';
 
@@ -122,8 +121,8 @@ export class Command1Service {
     let completedCount = 0;
 
     for (const day of dayAccumulations) {
-      const dateDir = path.join(this.outputDir, day.date);
-      if (!fs.existsSync(dateDir)) {
+      const dateDir = `${this.outputDir}/${day.date}`;
+      if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(dateDir)) {
         fs.mkdirSync(dateDir, { recursive: true });
       }
 
@@ -133,7 +132,7 @@ export class Command1Service {
       for (const inst of day.instruments) {
         completedCount++;
         const safeName = Command1Service.safeFilename(inst.instrumentKey);
-        const csvPath = path.join(dateDir, `${safeName}.csv`);
+        const csvPath = `${dateDir}/${safeName}.csv`;
 
         onProgress?.({
           currentDate: day.date,

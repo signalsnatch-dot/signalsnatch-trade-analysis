@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import {
   TradeSignal,
   Candle,
@@ -215,7 +214,8 @@ export class Command2Service {
     }
 
     const safeName = Command1Service.safeFilename(instrumentKey);
-    const csvPath = path.join(this.marketDataDir, dateStr, `${safeName}.csv`);
+    const targetDir = `${this.marketDataDir}/${dateStr}`;
+    const csvPath = `${targetDir}/${safeName}.csv`;
     const todayIST = UpstoxApiService.toISTDate(Date.now());
     const isToday = dateStr === todayIST;
 
@@ -224,8 +224,7 @@ export class Command2Service {
       try {
         const liveCandles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
         if (liveCandles && liveCandles.length > 0) {
-          const targetDir = path.dirname(csvPath);
-          if (!fs.existsSync(targetDir)) {
+          if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
             fs.mkdirSync(targetDir, { recursive: true });
           }
           UpstoxApiService.saveCandlesToCsv(liveCandles, csvPath);
@@ -238,7 +237,7 @@ export class Command2Service {
     }
 
     // 1. Try reading from CSV on disk (supports expired contracts or historical dates)
-    if (fs.existsSync(csvPath)) {
+    if (typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(csvPath)) {
       const candles = UpstoxApiService.loadCandlesFromCsv(csvPath);
       this.candleMemoryCache.set(cacheKey, candles);
       return candles;
@@ -248,8 +247,7 @@ export class Command2Service {
     try {
       const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
       if (candles.length > 0) {
-        const targetDir = path.dirname(csvPath);
-        if (!fs.existsSync(targetDir)) {
+        if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
           fs.mkdirSync(targetDir, { recursive: true });
         }
         UpstoxApiService.saveCandlesToCsv(candles, csvPath);
@@ -357,12 +355,13 @@ export class Command2Service {
   // Persistent evaluation result cache to eliminate re-evaluation overhead on server & client
   private static evaluationCache = new Map<string, TradeMilestoneAnalysis>();
   private static isEvaluationCacheLoaded = false;
-  private static cacheFilePath = path.join('./market_data', '.cmd2_evaluations_cache.json');
+  private static cacheFilePath = './market_data/.cmd2_evaluations_cache.json';
 
   public static loadEvaluationCache(): void {
+    if (typeof window !== 'undefined') return;
     if (Command2Service.isEvaluationCacheLoaded) return;
     try {
-      if (fs.existsSync(Command2Service.cacheFilePath)) {
+      if (fs && fs.existsSync && fs.existsSync(Command2Service.cacheFilePath)) {
         const raw = fs.readFileSync(Command2Service.cacheFilePath, 'utf-8');
         const parsed = JSON.parse(raw);
         if (typeof parsed === 'object' && parsed !== null) {
@@ -379,14 +378,17 @@ export class Command2Service {
   }
 
   public static saveEvaluationCache(): void {
+    if (typeof window !== 'undefined') return;
     try {
-      const dir = path.dirname(Command2Service.cacheFilePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const dir = './market_data';
+      if (fs && fs.existsSync && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       const obj: Record<string, TradeMilestoneAnalysis> = {};
       for (const [k, v] of Command2Service.evaluationCache.entries()) {
         obj[k] = v;
       }
-      fs.writeFileSync(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8');
+      if (fs && fs.writeFileSync) {
+        fs.writeFileSync(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8');
+      }
     } catch (e) {
       console.warn('Failed to save Command2 evaluation cache:', e);
     }
@@ -1572,7 +1574,7 @@ export class Command2Service {
 
     // Save CSV Report
     const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
-    const reportPath = path.join(this.reportsDir, `milestone_analysis_${timestampStr}.csv`);
+    const reportPath = `${this.reportsDir}/milestone_analysis_${timestampStr}.csv`;
     Command2Service.saveAnalysisCsv(analyses, reportPath, { activeFiltersApplied });
 
     return {
@@ -1938,8 +1940,10 @@ export class Command2Service {
     filePath: string,
     options?: { activeFiltersApplied?: string }
   ): void {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
+    if (typeof window !== 'undefined') return;
+    const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+    const dir = lastSlash >= 0 ? filePath.substring(0, lastSlash) : '.';
+    if (fs && fs.existsSync && !fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
@@ -2070,6 +2074,8 @@ export class Command2Service {
     }
 
     const content = [...metadataLines, headers.join(','), ...rows].join('\n') + '\n';
-    fs.writeFileSync(filePath, content, 'utf-8');
+    if (fs && fs.writeFileSync) {
+      fs.writeFileSync(filePath, content, 'utf-8');
+    }
   }
 }

@@ -1,6 +1,5 @@
 import axios from 'axios';
 import fs from 'fs';
-import path from 'path';
 import { Candle } from '../types/trade.ts';
 import { augmentCandlesWithIndicators } from './indicators.ts';
 
@@ -90,20 +89,21 @@ export class UpstoxApiService {
    */
   async fetch1MinCandles(instrumentKey: string, dateStr: string): Promise<Candle[]> {
     const safeKey = instrumentKey.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const localCsvPath = path.join(this.cacheDir, dateStr, `${safeKey}.csv`);
+    const localCsvPath = `${this.cacheDir}/${dateStr}/${safeKey}.csv`;
 
     const todayIST = UpstoxApiService.toISTDate(Date.now());
     const isToday = dateStr === todayIST;
     const encodedKey = encodeURIComponent(instrumentKey);
+    const hasLocalCache = typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(localCsvPath);
 
     // 1. If local CSV disk cache exists, ALWAYS load from local CSV first (supports historical & expired contracts)
-    if (fs.existsSync(localCsvPath)) {
+    if (hasLocalCache) {
       const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
       if (cached.length > 0) return cached;
     }
 
     // If no access token is configured or for historical non-today dates when CSV is absent, skip expensive failing HTTP calls
-    if (!this.accessToken || (!isToday && !fs.existsSync(localCsvPath))) {
+    if (!this.accessToken || (!isToday && !hasLocalCache)) {
       return [];
     }
 
@@ -301,8 +301,10 @@ export class UpstoxApiService {
    * Save candles to CSV file including basic indicator columns
    */
   static saveCandlesToCsv(candles: Candle[], filePath: string): void {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
+    if (typeof window !== 'undefined') return;
+    const lastSlash = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
+    const dir = lastSlash >= 0 ? filePath.substring(0, lastSlash) : '.';
+    if (fs && fs.existsSync && !fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
 
@@ -323,14 +325,16 @@ export class UpstoxApiService {
       ].join(',')
     );
 
-    fs.writeFileSync(filePath, [header, ...rows].join('\n') + '\n', 'utf-8');
+    if (fs && fs.writeFileSync) {
+      fs.writeFileSync(filePath, [header, ...rows].join('\n') + '\n', 'utf-8');
+    }
   }
 
   /**
    * Load candles from a CSV file (recalculating indicators if not present)
    */
   static loadCandlesFromCsv(filePath: string): Candle[] {
-    if (!fs.existsSync(filePath)) return [];
+    if (typeof window !== 'undefined' || !fs || !fs.existsSync || !fs.existsSync(filePath)) return [];
     const content = fs.readFileSync(filePath, 'utf-8');
     const lines = content.trim().split('\n');
     if (lines.length <= 1) return [];
