@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import compression from 'compression';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -48,27 +49,69 @@ function getApiService(): UpstoxApiService {
   return new UpstoxApiService({ accessToken: activeUpstoxToken, cacheDir: MARKET_DATA_DIR });
 }
 
+// In-Memory Signals Cache to prevent blocking disk I/O and redundant JSON parsing on every request
+let cachedSignalsData: {
+  files: { filename: string; trades: TradeSignal[] }[];
+  allTrades: TradeSignal[];
+  versions: string[];
+  instruments: string[];
+  dates: string[];
+} | null = null;
+
+function invalidateSignalsCache(): void {
+  console.log(`[SIGNALS CACHE] Invalidate in-memory cache due to file mutation`);
+  cachedSignalsData = null;
+}
+
 function loadAllSignals(): { filename: string; trades: TradeSignal[] }[] {
+  if (cachedSignalsData) {
+    return cachedSignalsData.files;
+  }
+
   const result: { filename: string; trades: TradeSignal[] }[] = [];
   if (!fs.existsSync(SIGNALS_DIR)) return result;
 
   const files = fs.readdirSync(SIGNALS_DIR).filter((f) => f.endsWith('.json'));
+  const combinedTrades: TradeSignal[] = [];
+
   for (const f of files) {
     try {
       const content = fs.readFileSync(path.join(SIGNALS_DIR, f), 'utf-8');
       const data = JSON.parse(content);
       if (Array.isArray(data)) {
-        result.push({ filename: f, trades: data });
+        const tradesWithIST = data.map((t: any) => ({
+          ...t,
+          ist: t.ist || UpstoxApiService.toISTString(t.timestamp),
+        }));
+        result.push({ filename: f, trades: tradesWithIST });
+        combinedTrades.push(...tradesWithIST);
       }
     } catch {
       // Ignore invalid files
     }
   }
+
+  const versions = Array.from(new Set(combinedTrades.map((t) => t.version))).sort();
+  const instruments = Array.from(new Set(combinedTrades.map((t) => t.instrument))).sort();
+  const dates = Array.from(new Set(combinedTrades.map((t) => UpstoxApiService.toISTDate(t.timestamp)))).sort();
+
+  cachedSignalsData = {
+    files: result,
+    allTrades: combinedTrades,
+    versions,
+    instruments,
+    dates,
+  };
+
+  console.log(`[SIGNALS CACHE] Rebuilt cache: ${result.length} files, ${combinedTrades.length} total trades`);
   return result;
 }
 
 async function startServer() {
   const app = express();
+  
+  // Enable Gzip compression to reduce 20MB+ JSON payloads down to ~1.5MB for fast non-blocking transfers
+  app.use(compression());
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -138,6 +181,7 @@ async function startServer() {
       const saveName = (filename || path.basename(targetUrl)).replace(/[^a-zA-Z0-9_.-]/g, '_');
       const targetPath = path.join(SIGNALS_DIR, saveName);
       fs.writeFileSync(targetPath, JSON.stringify(trades, null, 2), 'utf-8');
+      invalidateSignalsCache();
 
       res.json({
         success: true,
@@ -181,6 +225,8 @@ async function startServer() {
           console.error(`Failed to download ${item.filename}:`, e);
         }
       }
+
+      invalidateSignalsCache();
 
       res.json({
         success: true,
@@ -265,35 +311,31 @@ async function startServer() {
     }
   });
 
-  // 4. Load trades data
+  // 4. Load trades data (Cached, fast, compressed)
   app.get('/api/signals/data', (req: Request, res: Response) => {
     try {
       const filename = req.query.filename as string | undefined;
-      const all = loadAllSignals();
+      loadAllSignals(); // ensures cache is populated
+
+      if (!cachedSignalsData) {
+        return res.json({ trades: [], total: 0, versions: [], instruments: [], dates: [] });
+      }
+
       let combinedTrades: TradeSignal[] = [];
 
       if (filename) {
-        const found = all.find((item) => item.filename === filename);
+        const found = cachedSignalsData.files.find((item) => item.filename === filename);
         if (found) combinedTrades = found.trades;
       } else {
-        all.forEach((item) => combinedTrades.push(...item.trades));
+        combinedTrades = cachedSignalsData.allTrades;
       }
-
-      combinedTrades = combinedTrades.map((t) => ({
-        ...t,
-        ist: t.ist || UpstoxApiService.toISTString(t.timestamp),
-      }));
-
-      const versions = Array.from(new Set(combinedTrades.map((t) => t.version))).sort();
-      const instruments = Array.from(new Set(combinedTrades.map((t) => t.instrument))).sort();
-      const dates = Array.from(new Set(combinedTrades.map((t) => UpstoxApiService.toISTDate(t.timestamp)))).sort();
 
       res.json({
         trades: combinedTrades,
         total: combinedTrades.length,
-        versions,
-        instruments,
-        dates,
+        versions: cachedSignalsData.versions,
+        instruments: cachedSignalsData.instruments,
+        dates: cachedSignalsData.dates,
       });
     } catch (err: unknown) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -302,73 +344,109 @@ async function startServer() {
 
   // 5. Upload/paste trades
   app.post('/api/signals/upload', (req: Request, res: Response) => {
+    const uploadStartMs = Date.now();
     try {
       const { filename, trades } = req.body;
+      console.log(`[SIGNALS UPLOAD START] ${new Date().toISOString()} | Filename: '${filename || 'custom'}'`);
+
       if (!Array.isArray(trades)) {
+        console.error(`[SIGNALS UPLOAD ERROR] Expected trades to be a JSON array`);
         return res.status(400).json({ error: 'Expected trades to be a JSON array' });
       }
+
       const safeName = (filename || `trades_${Date.now()}.json`).replace(/[^a-zA-Z0-9_.-]/g, '_');
       const target = path.join(SIGNALS_DIR, safeName);
-      fs.writeFileSync(target, JSON.stringify(trades, null, 2), 'utf-8');
+      const jsonContent = JSON.stringify(trades, null, 2);
+      fs.writeFileSync(target, jsonContent, 'utf-8');
+
+      invalidateSignalsCache();
+
+      const elapsedMs = Date.now() - uploadStartMs;
+      const sizeKb = (Buffer.byteLength(jsonContent, 'utf-8') / 1024).toFixed(1);
+      console.log(`[SIGNALS UPLOAD SUCCESS] Saved '${safeName}' (${sizeKb} KB, ${trades.length} trades) in ${elapsedMs}ms`);
+
       res.json({ success: true, filename: safeName, count: trades.length });
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      const elapsedMs = Date.now() - uploadStartMs;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[SIGNALS UPLOAD FAILED] (${elapsedMs}ms): ${errMsg}`);
+      res.status(500).json({ error: errMsg });
     }
   });
 
   // 6. Run Command 1
   app.post('/api/command1/run', async (req: Request, res: Response) => {
+    const reqStartMs = Date.now();
     try {
       const { filename, trades: customTrades } = req.body;
+      console.log(`[API /command1/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'}`);
+
       let tradesToProcess: TradeSignal[] = [];
 
       if (Array.isArray(customTrades) && customTrades.length > 0) {
         tradesToProcess = customTrades;
       } else {
-        const all = loadAllSignals();
-        if (filename) {
-          const found = all.find((item) => item.filename === filename);
-          if (found) tradesToProcess = found.trades;
-        } else {
-          all.forEach((item) => tradesToProcess.push(...item.trades));
+        loadAllSignals();
+        if (cachedSignalsData) {
+          if (filename) {
+            const found = cachedSignalsData.files.find((item) => item.filename === filename);
+            if (found) tradesToProcess = found.trades;
+          } else {
+            tradesToProcess = cachedSignalsData.allTrades;
+          }
         }
       }
 
       if (tradesToProcess.length === 0) {
+        console.warn(`[API /command1/run WARN] No trades available to process`);
         return res.status(400).json({ error: 'No trades available to process' });
       }
 
       const apiService = getApiService();
       const cmd1 = new Command1Service({ apiService, outputDir: MARKET_DATA_DIR });
       const result = await cmd1.execute(tradesToProcess);
+
+      const elapsedMs = Date.now() - reqStartMs;
+      console.log(`[API /command1/run SUCCESS] Completed in ${elapsedMs}ms`);
+
       res.json({ success: true, result });
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      const elapsedMs = Date.now() - reqStartMs;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[API /command1/run ERROR] (${elapsedMs}ms): ${errMsg}`);
+      res.status(500).json({ error: errMsg });
     }
   });
 
   // 7. Run Command 2
   app.post('/api/command2/run', async (req: Request, res: Response) => {
+    const reqStartMs = Date.now();
     try {
-      const { filename, trades: customTrades, versionFilters, useAllVersions } = req.body;
+      const { filename, trades: customTrades, versionFilters, useAllVersions, volumeTradesOnly } = req.body;
+      console.log(`\n[API /command2/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | VolumeOnly: ${volumeTradesOnly !== false}`);
+
       let tradesToProcess: TradeSignal[] = [];
 
       if (Array.isArray(customTrades) && customTrades.length > 0) {
         tradesToProcess = customTrades;
       } else {
-        const all = loadAllSignals();
-        if (filename) {
-          const found = all.find((item) => item.filename === filename);
-          if (found) tradesToProcess = found.trades;
-        } else {
-          all.forEach((item) => tradesToProcess.push(...item.trades));
+        loadAllSignals();
+        if (cachedSignalsData) {
+          if (filename) {
+            const found = cachedSignalsData.files.find((item) => item.filename === filename);
+            if (found) tradesToProcess = found.trades;
+          } else {
+            tradesToProcess = cachedSignalsData.allTrades;
+          }
         }
       }
 
-      // Deduplicate signals upfront across files to eliminate duplicate trades
+      const rawCount = tradesToProcess.length;
       tradesToProcess = Command2Service.deduplicateTrades(tradesToProcess);
+      console.log(`[API /command2/run] Total trades: ${rawCount} raw -> ${tradesToProcess.length} unique trades`);
 
       if (tradesToProcess.length === 0) {
+        console.warn(`[API /command2/run WARN] No trades available to process`);
         return res.status(400).json({ error: 'No trades available to process' });
       }
 
@@ -382,18 +460,24 @@ async function startServer() {
       const result = await cmd2.execute(tradesToProcess, {
         versionFilters: Array.isArray(versionFilters) ? versionFilters : ['ULTRA', 'UBER'],
         useAllVersions: Boolean(useAllVersions),
+        volumeTradesOnly: volumeTradesOnly !== false,
         marketDataDir: MARKET_DATA_DIR,
         outputReportsDir: REPORTS_DIR,
       });
 
+      const elapsedMs = Date.now() - reqStartMs;
+      console.log(`[API /command2/run SUCCESS] Completed in ${elapsedMs}ms | Analyses: ${result.summary.totalTradesAnalyzed}, Incomplete: ${result.incompleteTrades.length}\n`);
+
       res.json({ success: true, result });
     } catch (err: unknown) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      const elapsedMs = Date.now() - reqStartMs;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error(`[API /command2/run ERROR] (${elapsedMs}ms): ${errMsg}\n`);
+      res.status(500).json({ error: errMsg });
     }
   });
 
   // 8. Candles with Indicators for Charting
-  // 8. Candles with Indicators for Charting (supports multi-day range via endDate)
   app.get('/api/candles', async (req: Request, res: Response) => {
     try {
       const instrument = req.query.instrument as string;
@@ -474,7 +558,7 @@ async function startServer() {
     }
   });
 
-  // 9b. Upload CSV / JSON into Market Data Directory (supports batch JSONs, multi-date mapping, and expired contracts)
+  // 9b. Upload CSV / JSON into Market Data Directory
   app.post('/api/market-data/upload', (req: Request, res: Response) => {
     try {
       const { date, filename, content, csvList, files } = req.body;
@@ -556,77 +640,73 @@ async function startServer() {
     }
   });
 
-// 10b. Download Entire CSV Directory as TAR.GZ (Fixed extraction packaging and byte-exact delivery)
-app.get('/api/download-directory', (req: Request, res: Response) => {
-  try {
-    const type = req.query.type as string; // 'report' or 'market'
-    
-    // Select which directory to download based on query type
-    const targetDir = type === 'report' ? REPORTS_DIR : MARKET_DATA_DIR;
-    const folderName = type === 'report' ? 'reports_export' : 'market_data_export';
+  // 10b. Download Entire CSV Directory as TAR.GZ
+  app.get('/api/download-directory', (req: Request, res: Response) => {
+    try {
+      const type = req.query.type as string; // 'report' or 'market'
+      
+      const targetDir = type === 'report' ? REPORTS_DIR : MARKET_DATA_DIR;
+      const folderName = type === 'report' ? 'reports_export' : 'market_data_export';
 
-    if (!fs.existsSync(targetDir)) {
-      return res.status(404).send('Directory not found');
-    }
-
-    const archiveName = `${folderName}.tar.gz`;
-    const tempArchivePath = path.resolve(__dirname, `export_${Date.now()}_${archiveName}`);
-    const parentDir = path.dirname(targetDir);
-    const folderBase = path.basename(targetDir);
-
-    // Archive cleanly by directory name without leading ./ to ensure 100% extract compatibility
-    exec(`tar -czf "${tempArchivePath}" -C "${parentDir}" "${folderBase}"`, (err: any) => {
-      if (err) {
-        return res.status(500).send(`Archiving failed: ${err.message}`);
+      if (!fs.existsSync(targetDir)) {
+        return res.status(404).send('Directory not found');
       }
 
-      // Use res.download to ensure Content-Length header, proper stream termination, and safe cleanup
-      res.download(tempArchivePath, archiveName, (downloadErr) => {
-        if (fs.existsSync(tempArchivePath)) {
-          try {
-            fs.unlinkSync(tempArchivePath);
-          } catch {
-            // ignore
+      const archiveName = `${folderName}.tar.gz`;
+      const tempArchivePath = path.resolve(__dirname, `export_${Date.now()}_${archiveName}`);
+      const parentDir = path.dirname(targetDir);
+      const folderBase = path.basename(targetDir);
+
+      exec(`tar -czf "${tempArchivePath}" -C "${parentDir}" "${folderBase}"`, (err: any) => {
+        if (err) {
+          return res.status(500).send(`Archiving failed: ${err.message}`);
+        }
+
+        res.download(tempArchivePath, archiveName, (downloadErr) => {
+          if (fs.existsSync(tempArchivePath)) {
+            try {
+              fs.unlinkSync(tempArchivePath);
+            } catch {
+              // ignore
+            }
           }
-        }
+        });
       });
-    });
-  } catch (err: unknown) {
-    res.status(500).send(err instanceof Error ? err.message : String(err));
-  }
-});
-
-// 10c. Batch Refresh 1-Minute Candles for Live Instruments with Pending Milestones (Requirement 4)
-app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) => {
-  try {
-    const { instrumentKeys, date } = req.body;
-    const targetDate = date || UpstoxApiService.toISTDate(Date.now());
-    const api = getApiService();
-    const keys: string[] = Array.isArray(instrumentKeys) ? instrumentKeys : [];
-    let refreshedCount = 0;
-
-    for (const key of keys) {
-      try {
-        const candles = await api.fetch1MinCandles(key, targetDate);
-        if (candles.length > 0) {
-          const safeName = Command1Service.safeFilename(key);
-          const targetSubdir = path.join(MARKET_DATA_DIR, targetDate);
-          if (!fs.existsSync(targetSubdir)) fs.mkdirSync(targetSubdir, { recursive: true });
-          const csvPath = path.join(targetSubdir, `${safeName}.csv`);
-          UpstoxApiService.saveCandlesToCsv(candles, csvPath);
-          refreshedCount++;
-        }
-      } catch {
-        // Continue with remaining instruments
-      }
+    } catch (err: unknown) {
+      res.status(500).send(err instanceof Error ? err.message : String(err));
     }
+  });
 
-    res.json({ success: true, refreshedCount, totalRequested: keys.length, targetDate });
-  } catch (err: unknown) {
-    res.status(500).send(err instanceof Error ? err.message : String(err));
-  }
-});
+  // 10c. Batch Refresh 1-Minute Candles for Live Instruments
+  app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) => {
+    try {
+      const { instrumentKeys, date } = req.body;
+      const targetDate = date || UpstoxApiService.toISTDate(Date.now());
+      const api = getApiService();
+      const keys: string[] = Array.isArray(instrumentKeys) ? instrumentKeys : [];
+      let refreshedCount = 0;
 
+      for (const key of keys) {
+        try {
+          const candles = await api.fetch1MinCandles(key, targetDate);
+          if (candles.length > 0) {
+            const safeName = Command1Service.safeFilename(key);
+            const targetSubdir = path.join(MARKET_DATA_DIR, targetDate);
+            if (!fs.existsSync(targetSubdir)) fs.mkdirSync(targetSubdir, { recursive: true });
+            const csvPath = path.join(targetSubdir, `${safeName}.csv`);
+            UpstoxApiService.saveCandlesToCsv(candles, csvPath);
+            refreshedCount++;
+          }
+        } catch {
+          // Continue with remaining instruments
+        }
+      }
+
+      res.json({ success: true, refreshedCount, totalRequested: keys.length, targetDate });
+    } catch (err: unknown) {
+      res.status(500).send(err instanceof Error ? err.message : String(err));
+    }
+  });
 
   // 11. Upstox Token Configuration
   app.post('/api/config/token', (req: Request, res: Response) => {
@@ -679,13 +759,16 @@ app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) 
     }
   });
 
-  // Mount Vite middleware in dev or static files in production
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(path.resolve(__dirname, 'dist'))) {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+  // Mount Vite middleware in dev or static files in production / build
+  const distPath = path.resolve(__dirname, 'dist');
+  if (process.env.NODE_ENV === 'production' || fs.existsSync(distPath)) {
+    console.log(`[SERVER] Serving static assets from '${distPath}'`);
+    app.use(express.static(distPath));
     app.get('*', (req: Request, res: Response) => {
-      res.sendFile(path.resolve(__dirname, 'dist/index.html'));
+      res.sendFile(path.resolve(distPath, 'index.html'));
     });
   } else {
+    console.log(`[SERVER] Initializing Vite dev middleware`);
     const vite = await createViteServer({
       server: { middlewareMode: true, hmr: false },
       appType: 'spa',
@@ -699,3 +782,4 @@ app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) 
 }
 
 startServer().catch(console.error);
+

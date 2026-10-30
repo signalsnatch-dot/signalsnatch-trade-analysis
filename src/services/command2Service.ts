@@ -1376,23 +1376,49 @@ export class Command2Service {
     const rawAnalyses: TradeMilestoneAnalysis[] = [];
     const total = filteredTrades.length;
 
-    for (let i = 0; i < total; i++) {
-      const trade = filteredTrades[i];
-      onProgress?.({
-        currentIndex: i + 1,
-        totalTrades: total,
-        currentTradeName: trade.name,
-        currentVersion: trade.version,
-        message: `Analyzing trade ${i + 1}/${total}: ${trade.name} (${trade.version})...`,
-      });
+    const BATCH_SIZE = 10;
+    const startTimeMs = Date.now();
+    console.log(`\n==================================================`);
+    console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in batches of ${BATCH_SIZE}...`);
+    console.log(`==================================================`);
 
-      const analysis = await this.evaluateTrade(trade);
-      rawAnalyses.push(analysis);
+    for (let i = 0; i < total; i += BATCH_SIZE) {
+      const batch = filteredTrades.slice(i, i + BATCH_SIZE);
 
-      if (i % 5 === 0) {
-        await new Promise((resolve) => setTimeout(resolve, 15));
+      for (let j = 0; j < batch.length; j++) {
+        const trade = batch[j];
+        const globalIdx = i + j;
+
+        onProgress?.({
+          currentIndex: globalIdx + 1,
+          totalTrades: total,
+          currentTradeName: trade.name,
+          currentVersion: trade.version,
+          message: `Analyzing trade ${globalIdx + 1}/${total}: ${trade.name} (${trade.version})...`,
+        });
+
+        const analysis = await this.evaluateTrade(trade);
+        rawAnalyses.push(analysis);
       }
+
+      // Non-blocking yield to event loop after each batch
+      await new Promise((resolve) => setTimeout(resolve, 15));
+
+      const elapsedSec = ((Date.now() - startTimeMs) / 1000).toFixed(2);
+      const heapRamMb = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+      const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+      const totalBatches = Math.ceil(total / BATCH_SIZE);
+      const processedCount = Math.min(i + BATCH_SIZE, total);
+
+      console.log(
+        `[COMMAND 2 BATCH ${batchNum}/${totalBatches}] ${processedCount}/${total} trades evaluated (${elapsedSec}s elapsed) | Heap RAM: ${heapRamMb} MB`
+      );
     }
+
+    const totalElapsedSec = ((Date.now() - startTimeMs) / 1000).toFixed(2);
+    console.log(`==================================================`);
+    console.log(`[COMMAND 2 FINISHED] ${total} trades completed in ${totalElapsedSec}s | Analyses: ${rawAnalyses.length}`);
+    console.log(`==================================================\n`);
 
     // REQUIREMENT 1: Separate incomplete trades (missing CSV for date) from Command 2 analyses
     const analyses: TradeMilestoneAnalysis[] = [];

@@ -79,13 +79,12 @@ export default function App() {
 
   // Run Command 1
   const handleRunCommand1 = async () => {
-    if (trades.length === 0) return;
     setIsCmd1Running(true);
     try {
       const res = await fetch('/api/command1/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trades }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (data.result) {
@@ -100,14 +99,12 @@ export default function App() {
 
   // Run Command 2
   const handleRunCommand2 = async (options: { versionFilters: string[]; useAllVersions: boolean; volumeTradesOnly?: boolean }) => {
-    if (trades.length === 0) return;
     setIsCmd2Running(true);
     try {
       const res = await fetch('/api/command2/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          trades,
           versionFilters: options.versionFilters,
           useAllVersions: options.useAllVersions,
           volumeTradesOnly: options.volumeTradesOnly !== false,
@@ -124,13 +121,6 @@ export default function App() {
     }
   };
 
-  // Auto-run Command 2 on initial load if we have trades
-  useEffect(() => {
-    if (trades.length > 0 && !cmd2Result && !isCmd2Running) {
-      handleRunCommand2({ versionFilters: ['ULTRA', 'UBER'], useAllVersions: false });
-    }
-  }, [trades]);
-
   const handleUploadTrades = async (uploadedTrades: TradeSignal[], filename: string) => {
     try {
       const res = await fetch('/api/signals/upload', {
@@ -141,7 +131,6 @@ export default function App() {
       const data = await res.json();
       if (data.success) {
         await loadTradesData();
-        handleRunCommand2({ versionFilters: ['ULTRA', 'UBER'], useAllVersions: false });
       }
     } catch (err) {
       console.error('Error uploading trades:', err);
