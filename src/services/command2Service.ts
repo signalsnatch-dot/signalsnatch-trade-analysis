@@ -354,12 +354,68 @@ export class Command2Service {
     return { volumeSum, ticks };
   }
 
+  // Persistent evaluation result cache to eliminate re-evaluation overhead on server & client
+  private static evaluationCache = new Map<string, TradeMilestoneAnalysis>();
+  private static isEvaluationCacheLoaded = false;
+  private static cacheFilePath = path.join('./market_data', '.cmd2_evaluations_cache.json');
+
+  public static loadEvaluationCache(): void {
+    if (Command2Service.isEvaluationCacheLoaded) return;
+    try {
+      if (fs.existsSync(Command2Service.cacheFilePath)) {
+        const raw = fs.readFileSync(Command2Service.cacheFilePath, 'utf-8');
+        const parsed = JSON.parse(raw);
+        if (typeof parsed === 'object' && parsed !== null) {
+          for (const [key, val] of Object.entries(parsed)) {
+            if (val) Command2Service.evaluationCache.set(key, val as TradeMilestoneAnalysis);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load Command2 evaluation cache:', e);
+    } finally {
+      Command2Service.isEvaluationCacheLoaded = true;
+    }
+  }
+
+  public static saveEvaluationCache(): void {
+    try {
+      const dir = path.dirname(Command2Service.cacheFilePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const obj: Record<string, TradeMilestoneAnalysis> = {};
+      for (const [k, v] of Command2Service.evaluationCache.entries()) {
+        obj[k] = v;
+      }
+      fs.writeFileSync(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8');
+    } catch (e) {
+      console.warn('Failed to save Command2 evaluation cache:', e);
+    }
+  }
+
+  public static getTradeKey(trade: TradeSignal): string {
+    return `${trade.instrument}_${trade.timestamp}_${trade.version}_${trade.type}_${Number(trade.entry || 0).toFixed(2)}_${trade.threshold}_${trade.sl}_${trade.tp}`;
+  }
+
   /**
-   * Evaluate a single trade's milestones with multi-day M1 & M2 resolution,
-   * NSE_FO lotSize adjustment in volume/ticks, Uber vs Ultra targets,
-   * adverse excursion drawdown, and crossings tracking.
+   * Evaluate a single trade with evaluation caching support
    */
   async evaluateTrade(trade: TradeSignal): Promise<TradeMilestoneAnalysis> {
+    Command2Service.loadEvaluationCache();
+    const key = Command2Service.getTradeKey(trade);
+    if (Command2Service.evaluationCache.has(key)) {
+      return Command2Service.evaluationCache.get(key)!;
+    }
+
+    const analysis = await this.evaluateTradeInternal(trade);
+    Command2Service.evaluationCache.set(key, analysis);
+    Command2Service.saveEvaluationCache();
+    return analysis;
+  }
+
+  /**
+   * Internal trade milestone resolution implementation
+   */
+  async evaluateTradeInternal(trade: TradeSignal): Promise<TradeMilestoneAnalysis> {
     const dateStr = UpstoxApiService.toISTDate(trade.timestamp);
     const entryIst = UpstoxApiService.toISTString(trade.timestamp);
     const isBuy = trade.type === 'BUY_STOP';

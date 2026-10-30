@@ -77,6 +77,13 @@ export default function App() {
     loadTradesData();
   }, [loadTradesData]);
 
+  const [cmd2Progress, setCmd2Progress] = useState<{
+    currentBatch: number;
+    totalBatches: number;
+    processedTrades: number;
+    totalTrades: number;
+  } | null>(null);
+
   // Run Command 1
   const handleRunCommand1 = async () => {
     setIsCmd1Running(true);
@@ -97,15 +104,8 @@ export default function App() {
     }
   };
 
-  const [cmd2Progress, setCmd2Progress] = useState<{
-    currentBatch: number;
-    totalBatches: number;
-    processedTrades: number;
-    totalTrades: number;
-  } | null>(null);
-
   // Run Command 2 in non-blocking streaming batches with live intermittent dashboard updates
-  const handleRunCommand2 = async (options: {
+  const handleRunCommand2 = useCallback(async (options: {
     versionFilters: string[];
     useAllVersions: boolean;
     volumeTradesOnly?: boolean;
@@ -126,8 +126,8 @@ export default function App() {
         return;
       }
 
-      // Small batch size of 25 trades per API call for fast intermittent updates
-      const BATCH_SIZE = 25;
+      // Batch size of 50 trades per API call for fast streaming updates
+      const BATCH_SIZE = 50;
       const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
       const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
 
@@ -187,7 +187,18 @@ export default function App() {
       setCmd2Progress(null);
       setIsCmd2Running(false);
     }
-  };
+  }, [trades]);
+
+  // Automatically execute Command 2 on initial load once trades are populated
+  useEffect(() => {
+    if (trades.length > 0 && !cmd2Result && !isCmd2Running) {
+      handleRunCommand2({
+        versionFilters: ['ULTRA', 'UBER'],
+        useAllVersions: false,
+        volumeTradesOnly: true,
+      });
+    }
+  }, [trades, cmd2Result, isCmd2Running, handleRunCommand2]);
 
   const handleUploadTrades = async (uploadedTrades: TradeSignal[], filename: string) => {
     try {

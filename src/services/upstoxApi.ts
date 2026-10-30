@@ -96,10 +96,15 @@ export class UpstoxApiService {
     const isToday = dateStr === todayIST;
     const encodedKey = encodeURIComponent(instrumentKey);
 
-    // 1. If it's a historical date (not today), check local CSV disk cache first (supports expired contracts)
-    if (!isToday && fs.existsSync(localCsvPath)) {
+    // 1. If local CSV disk cache exists, ALWAYS load from local CSV first (supports historical & expired contracts)
+    if (fs.existsSync(localCsvPath)) {
       const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
       if (cached.length > 0) return cached;
+    }
+
+    // If no access token is configured or for historical non-today dates when CSV is absent, skip expensive failing HTTP calls
+    if (!this.accessToken || (!isToday && !fs.existsSync(localCsvPath))) {
+      return [];
     }
 
     const parseCandles = (rawCandles: (string | number)[][]): Candle[] => {
