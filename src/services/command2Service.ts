@@ -177,6 +177,11 @@ export class Command2Service {
   private static dailyCandleMemoryCache = new Map<string, Candle[]>();
   private static candleRangeMemoryCache = new Map<string, Candle[]>();
 
+  // In-flight promise deduplication maps to prevent redundant concurrent disk/API reads during parallel batch execution
+  private static inFlightCandlePromises = new Map<string, Promise<Candle[]>>();
+  private static inFlightDailyPromises = new Map<string, Promise<Candle[]>>();
+  private static inFlightRangePromises = new Map<string, Promise<Candle[]>>();
+
   constructor(options?: {
     apiService?: UpstoxApiService;
     marketDataDir?: string;
@@ -211,6 +216,9 @@ export class Command2Service {
     Command2Service.candleMemoryCache.clear();
     Command2Service.dailyCandleMemoryCache.clear();
     Command2Service.candleRangeMemoryCache.clear();
+    Command2Service.inFlightCandlePromises.clear();
+    Command2Service.inFlightDailyPromises.clear();
+    Command2Service.inFlightRangePromises.clear();
     Command2Service.isEvaluationCacheLoaded = false;
 
     if (typeof window === 'undefined' && fs && fs.existsSync) {
@@ -253,46 +261,57 @@ export class Command2Service {
       return Command2Service.candleMemoryCache.get(cacheKey)!;
     }
 
-    const safeName = Command1Service.safeFilename(instrumentKey);
-    const targetDir = `${this.marketDataDir}/${dateStr}`;
-    const csvPath = `${targetDir}/${safeName}.csv`;
-    const altCsvPath = `${targetDir}/${instrumentKey.replace(/\|/g, '_')}.csv`;
+    if (Command2Service.inFlightCandlePromises.has(cacheKey)) {
+      return Command2Service.inFlightCandlePromises.get(cacheKey)!;
+    }
 
-    // 1. Try reading from CSV on disk first (supports local downloaded, synced, or historical candles)
-    if (typeof window === 'undefined' && fs && fs.existsSync) {
-      const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
-      if (pathToCheck) {
-        const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
+    const fetchPromise = (async () => {
+      const safeName = Command1Service.safeFilename(instrumentKey);
+      const targetDir = `${this.marketDataDir}/${dateStr}`;
+      const csvPath = `${targetDir}/${safeName}.csv`;
+      const altCsvPath = `${targetDir}/${instrumentKey.replace(/\|/g, '_')}.csv`;
+
+      // 1. Try reading from CSV on disk first (supports local downloaded, synced, or historical candles)
+      if (typeof window === 'undefined' && fs && fs.existsSync) {
+        const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
+        if (pathToCheck) {
+          const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
+          if (candles && candles.length > 0) {
+            if (!isToday) {
+              Command2Service.candleMemoryCache.set(cacheKey, candles);
+            }
+            return candles;
+          }
+        }
+      }
+
+      // 2. Fetch from Upstox API (publicly accessible endpoints for both today and historical dates)
+      try {
+        const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
         if (candles && candles.length > 0) {
+          if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
+            fs.mkdirSync(targetDir, { recursive: true });
+          }
+          UpstoxApiService.saveCandlesToCsv(candles, csvPath);
           if (!isToday) {
             Command2Service.candleMemoryCache.set(cacheKey, candles);
           }
           return candles;
         }
+      } catch {
+        // Continue to empty fallback
       }
-    }
 
-    // 2. Fetch from Upstox API (publicly accessible endpoints for both today and historical dates)
-    try {
-      const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
-      if (candles && candles.length > 0) {
-        if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true });
-        }
-        UpstoxApiService.saveCandlesToCsv(candles, csvPath);
-        if (!isToday) {
-          Command2Service.candleMemoryCache.set(cacheKey, candles);
-        }
-        return candles;
+      if (!isToday) {
+        Command2Service.candleMemoryCache.set(cacheKey, []);
       }
-    } catch {
-      // Continue to empty fallback
-    }
+      return [];
+    })().finally(() => {
+      Command2Service.inFlightCandlePromises.delete(cacheKey);
+    });
 
-    if (!isToday) {
-      Command2Service.candleMemoryCache.set(cacheKey, []);
-    }
-    return [];
+    Command2Service.inFlightCandlePromises.set(cacheKey, fetchPromise);
+    return fetchPromise;
   }
 
   /**
@@ -365,23 +384,34 @@ export class Command2Service {
       return Command2Service.dailyCandleMemoryCache.get(key)!;
     }
 
-    // 1. Try local CSV disk aggregation first (instant < 0.1ms response)
-    const localDaily = this.getDailyCandlesFromLocalCsvs(instrument, fromDate, toDate);
-    if (localDaily.length > 0) {
-      Command2Service.dailyCandleMemoryCache.set(key, localDaily);
-      return localDaily;
+    if (Command2Service.inFlightDailyPromises.has(key)) {
+      return Command2Service.inFlightDailyPromises.get(key)!;
     }
 
-    // 2. Fallback to API if local data is unavailable
-    try {
-      const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
-      const safe = res || [];
-      Command2Service.dailyCandleMemoryCache.set(key, safe);
-      return safe;
-    } catch {
-      Command2Service.dailyCandleMemoryCache.set(key, []);
-      return [];
-    }
+    const fetchPromise = (async () => {
+      // 1. Try local CSV disk aggregation first (instant < 0.1ms response)
+      const localDaily = this.getDailyCandlesFromLocalCsvs(instrument, fromDate, toDate);
+      if (localDaily.length > 0) {
+        Command2Service.dailyCandleMemoryCache.set(key, localDaily);
+        return localDaily;
+      }
+
+      // 2. Fallback to API if local data is unavailable
+      try {
+        const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
+        const safe = res || [];
+        Command2Service.dailyCandleMemoryCache.set(key, safe);
+        return safe;
+      } catch {
+        Command2Service.dailyCandleMemoryCache.set(key, []);
+        return [];
+      }
+    })().finally(() => {
+      Command2Service.inFlightDailyPromises.delete(key);
+    });
+
+    Command2Service.inFlightDailyPromises.set(key, fetchPromise);
+    return fetchPromise;
   }
 
   /**
@@ -393,46 +423,57 @@ export class Command2Service {
       return Command2Service.candleRangeMemoryCache.get(key)!;
     }
 
-    // 1. Parallel local load for each date from disk/memory cache
-    const start = new Date(fromDate);
-    const end = new Date(toDate);
-    const curr = new Date(start);
-    const dateStrs: string[] = [];
-    let dayCount = 0;
-
-    while (curr <= end && dayCount < 7) {
-      dayCount++;
-      dateStrs.push(curr.toISOString().split('T')[0]);
-      curr.setDate(curr.getDate() + 1);
+    if (Command2Service.inFlightRangePromises.has(key)) {
+      return Command2Service.inFlightRangePromises.get(key)!;
     }
 
-    const daysCandles = await Promise.all(dateStrs.map((dStr) => this.getCandlesForDay(instrument, dStr)));
-    const allCandles = daysCandles.flat();
+    const fetchPromise = (async () => {
+      // 1. Parallel local load for each date from disk/memory cache
+      const start = new Date(fromDate);
+      const end = new Date(toDate);
+      const curr = new Date(start);
+      const dateStrs: string[] = [];
+      let dayCount = 0;
 
-    if (allCandles.length > 0) {
-      allCandles.sort((a, b) => a.timeMs - b.timeMs);
-      const uniqueCandles: Candle[] = [];
-      const seen = new Set<number>();
-      for (const c of allCandles) {
-        if (!seen.has(c.timeMs)) {
-          seen.add(c.timeMs);
-          uniqueCandles.push(c);
-        }
+      while (curr <= end && dayCount < 7) {
+        dayCount++;
+        dateStrs.push(curr.toISOString().split('T')[0]);
+        curr.setDate(curr.getDate() + 1);
       }
-      Command2Service.candleRangeMemoryCache.set(key, uniqueCandles);
-      return uniqueCandles;
-    }
 
-    // 2. Fallback to API if local data is unavailable
-    try {
-      const res = await this.apiService.fetchCandleRange(instrument, fromDate, toDate);
-      const safe = res || [];
-      Command2Service.candleRangeMemoryCache.set(key, safe);
-      return safe;
-    } catch {
-      Command2Service.candleRangeMemoryCache.set(key, []);
-      return [];
-    }
+      const daysCandles = await Promise.all(dateStrs.map((dStr) => this.getCandlesForDay(instrument, dStr)));
+      const allCandles = daysCandles.flat();
+
+      if (allCandles.length > 0) {
+        allCandles.sort((a, b) => a.timeMs - b.timeMs);
+        const uniqueCandles: Candle[] = [];
+        const seen = new Set<number>();
+        for (const c of allCandles) {
+          if (!seen.has(c.timeMs)) {
+            seen.add(c.timeMs);
+            uniqueCandles.push(c);
+          }
+        }
+        Command2Service.candleRangeMemoryCache.set(key, uniqueCandles);
+        return uniqueCandles;
+      }
+
+      // 2. Fallback to API if local data is unavailable
+      try {
+        const res = await this.apiService.fetchCandleRange(instrument, fromDate, toDate);
+        const safe = res || [];
+        Command2Service.candleRangeMemoryCache.set(key, safe);
+        return safe;
+      } catch {
+        Command2Service.candleRangeMemoryCache.set(key, []);
+        return [];
+      }
+    })().finally(() => {
+      Command2Service.inFlightRangePromises.delete(key);
+    });
+
+    Command2Service.inFlightRangePromises.set(key, fetchPromise);
+    return fetchPromise;
   }
 
   /**

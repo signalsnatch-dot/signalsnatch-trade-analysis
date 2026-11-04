@@ -136,7 +136,8 @@ export default function App() {
         return;
       }
 
-      const BATCH_SIZE = 15;
+      const BATCH_SIZE = 20;
+      const MAX_CONCURRENT_BATCHES = 4;
       const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
       const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
       const incompleteTrades: TradeMilestoneAnalysis[] = [];
@@ -145,16 +146,12 @@ export default function App() {
         ? `Versions: ${options.versionFilters.join(', ')} | VolumeOnly: ${options.volumeTradesOnly !== false ? 'Yes' : 'No'}`
         : `Default (Ultra, Uber) | VolumeOnly: ${options.volumeTradesOnly !== false ? 'Yes' : 'No'}`;
 
-      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
-        const chunk = filteredTrades.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
-        const processedTrades = Math.min((batchIdx + 1) * BATCH_SIZE, filteredTrades.length);
+      let completedBatchesCount = 0;
+      let totalProcessedCount = 0;
 
-        setCmd2Progress({
-          currentBatch: batchIdx + 1,
-          totalBatches,
-          processedTrades,
-          totalTrades: filteredTrades.length,
-        });
+      // Batch worker function
+      const processBatchIndex = async (batchIdx: number) => {
+        const chunk = filteredTrades.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
 
         const res = await fetch('/api/command2/run-batch', {
           method: 'POST',
@@ -184,6 +181,16 @@ export default function App() {
             }
           }
 
+          completedBatchesCount++;
+          totalProcessedCount += chunk.length;
+
+          setCmd2Progress({
+            currentBatch: completedBatchesCount,
+            totalBatches,
+            processedTrades: Math.min(totalProcessedCount, filteredTrades.length),
+            totalTrades: filteredTrades.length,
+          });
+
           const summary = Command2Service.computeSummary(accumulatedAnalyses, {
             totalVolumeTradesFiltered: filteredOutCount,
             incompleteTradesCount: incompleteTrades.length,
@@ -201,7 +208,22 @@ export default function App() {
         } else if (data.error) {
           throw new Error(data.error);
         }
-      }
+      };
+
+      // Worker pool queue: runs up to MAX_CONCURRENT_BATCHES in parallel
+      const queue = Array.from({ length: totalBatches }, (_, i) => i);
+      const runWorker = async () => {
+        while (queue.length > 0) {
+          const batchIdx = queue.shift();
+          if (batchIdx !== undefined) {
+            await processBatchIndex(batchIdx);
+          }
+        }
+      };
+
+      const workerCount = Math.min(MAX_CONCURRENT_BATCHES, totalBatches);
+      const workers = Array.from({ length: workerCount }, () => runWorker());
+      await Promise.all(workers);
     } catch (err) {
       console.error('Error running Command 2:', err);
     } finally {
