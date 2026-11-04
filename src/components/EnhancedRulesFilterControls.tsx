@@ -114,10 +114,10 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
 
   const handleSelectHighConfluenceCombinations = () => {
     const comboIds = [
-      'combo_uber_superset_93',
+      'combo_uber_expiry_cycle_93',
       'combo_ultra_cash_sweep_92',
-      'combo_ultra_fresh_wave_91',
       'combo_ultra_eq_recovery_91',
+      'combo_ultra_fade_inversion_92',
     ];
     onSelectRuleIds(comboIds);
     onRuleMatchModeChange('ANY');

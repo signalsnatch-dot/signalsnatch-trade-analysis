@@ -56,12 +56,12 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
 
       {/* Row 1: High Confluence Combinations (>90% Win Rates) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Combo 1: UBER Super-Set */}
+        {/* Combo 1: UBER Expiry-Cycle Mean Reversion */}
         <div className="p-3 rounded-xl bg-slate-950/80 border border-purple-900/50 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-300" />
-              1. UBER Conjoint Super-Set
+              1. UBER Expiry Mean Reversion
             </span>
             <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-purple-900/60 text-purple-200 border border-purple-700">
               93.8% Benchmark
@@ -74,11 +74,11 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            U-E1 + 10:00–13:00 IST + Geometry ≥0.60 + MA Comp ≤0.04%
+            Inverted Cross + Ext + Ratio ≥0.60 + Weeks 3–5 (Day ≥15)
           </p>
         </div>
 
-        {/* Combo 2: ULTRA Cash Equity Sweep */}
+        {/* Combo 2: ULTRA Institutional Cash Sweep */}
         <div className="p-3 rounded-xl bg-slate-950/80 border border-emerald-900/50 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
@@ -96,7 +96,7 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            NSE_EQ + Threshold Confluence ≥ 2 + Crossover Age ≤ 12
+            NSE_EQ + Threshold Gap ≤ 5 pts + Status Completed
           </p>
         </div>
 
@@ -118,7 +118,7 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            Age ≤ 6 candles + Thresh ≥ 2 + 10:00–12:30 IST
+            prior_candles ≤ 8 + Thresh Cluster + 10:00–12:30 IST
           </p>
         </div>
 
@@ -140,7 +140,7 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            EQ loss &lt;= 3.5x recovery • Climax futures fade
+            NSE_EQ loss &le; 3.5x to M2 • Cancelled futures inversion
           </p>
         </div>
       </div>

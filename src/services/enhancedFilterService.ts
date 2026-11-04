@@ -199,63 +199,63 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
   // 1. UBER ENGINE (Expected Target: SL — Mean Reversion Scalp)
   // =========================================================================
   {
-    id: 'u_e1_rubber_band',
-    name: 'Uber: Rubber-Band Price Extension Filter (U-E1)',
+    id: 'ub_e1_inverted_regime',
+    name: 'Uber: Inverted Regime & Extension Confluence (UB-E1)',
     engine: 'UBER',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
     triggerMoment: 'When stop signal is generated',
-    eligiblePool: 'All candidate UBER signals (N = 152)',
-    confidenceText: '83.7% Direct M1 Win Rate (N=82/98)',
-    description: 'SELL_STOP above SMA9/21; BUY_STOP below SMA9/21; Geometry Ratio >= 0.60',
+    eligiblePool: 'All candidate UBER signals (N = 102)',
+    confidenceText: '84.3% M1 Win Rate (N=86/102)',
+    description: 'SELL_STOP in BULLISH cross + Above SMA9/21; BUY_STOP in BEARISH cross + Below SMA9/21',
   },
   {
-    id: 'u_e2_liquidity_session',
-    name: 'Uber: Liquidity Session Filter (U-E2, 10:00–13:00)',
+    id: 'ub_e2_geometry_calendar',
+    name: 'Uber: Target Geometry & Expiry Calendar (UB-E2)',
     engine: 'UBER',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
     triggerMoment: 'Pre-entry validation',
-    eligiblePool: 'Signals passing U-E1',
-    confidenceText: '85.7% Direct M1 Win Rate (N=24/28)',
-    description: 'Timestamp strictly 10:00–13:00 IST (reject before 09:35 or after 14:15 IST)',
+    eligiblePool: 'Signals passing UB-E1 (N = 51)',
+    confidenceText: '88.2% M1 Win Rate (N=45/51)',
+    description: 'Geometry Ratio >= 0.60; Execution 10:00–13:00 IST; Weeks 2, 3, 4, 5 of month (Block Week 1)',
   },
   {
-    id: 'uber_ma_compression',
-    name: 'Uber: MA Compression Filter (≤ 0.04%)',
+    id: 'ub_e3_execution_order_type',
+    name: 'Uber: Execution Order Type / Wick Sweep (UB-E3)',
     engine: 'UBER',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
-    triggerMoment: 'Order placement calculation',
-    eligiblePool: 'Candidate UBER setups',
-    confidenceText: 'Conjoint Super-Set Component (93.8%)',
-    description: '|SMA Fast - EMA 20| / Entry <= 0.04% (tight cluster compression)',
+    triggerMoment: 'Order execution log',
+    eligiblePool: 'Filled bracket orders (N = 57)',
+    confidenceText: '89.5% M1 Win Rate (N=51/57)',
+    description: 'Engine bracket auto-cancels secondary leg (is_cancelled == YES; instant wick fill footprint)',
   },
   {
-    id: 'u_if1_1_5tick_invalidation',
-    name: 'Uber: 1.5-Tick Adverse Invalidation (U-IF1)',
+    id: 'ub_h1_1_5tick_scratch',
+    name: 'Uber: 1.5-Tick Scratch Rule (UB-H1)',
     engine: 'UBER',
     phase: 'IN_FLIGHT',
     lifecycleState: 'State 1: In-Flight Entry -> M1',
-    triggerMoment: 'Candles 1 to 2 post-fill (Continuous tick check)',
+    triggerMoment: 'First 120 seconds post-fill (Continuous tick check)',
     eligiblePool: 'All filled, active UBER positions (N = 94)',
     confidenceText: '89.7% Zero Adverse Heat (N=52/58)',
-    description: 'If price moves adversely toward TP by >= 1.5 ticks, Market Scratch Exit immediately',
+    description: 'If price moves adversely toward TP by >= 1.5 ticks in first 120s, fire immediate Market Scratch Exit',
   },
   {
-    id: 'u_h1_2x_gate',
-    name: 'Uber: 2.0x Mean-Reversion Gate (U-H1)',
+    id: 'ub_h2_dynamic_invalidation_gate',
+    name: 'Uber: Dynamic Invalidation Stop (UB-H2)',
     engine: 'UBER',
     phase: 'RECOVERY_HOLD',
     lifecycleState: 'State 3: Adverse Recovery Hold',
-    triggerMoment: 'M1 hits TP (Adverse Loss). Position is active/open',
+    triggerMoment: 'M1 hits TP (Adverse Loss). Position active in State 3',
     eligiblePool: 'ONLY active positions that lost M1 (N = 36). N/A if M1 won',
-    confidenceText: '83.3% M2 SL Recovery (N=25/30)',
-    description: 'Hold ONLY if loss <= 2.0x AND price recrosses entry within 10 min. Kill if > 2.0x with 0 touches',
+    confidenceText: '83.3% Recovery Rate to M2 SL (N=25/30)',
+    description: 'Kill immediately if adverse touches > 2.0x while entry_cross_count == 0; Hold for M2 if price recrosses entry before 2.0x loss',
   },
   {
-    id: 'u_x1_direct_target',
-    name: 'Uber: Direct Target Capture (U-X1)',
+    id: 'ub_x1_direct_target',
+    name: 'Uber: Direct Target Capture (UB-X1)',
     engine: 'UBER',
     phase: 'FINAL_EXIT',
     lifecycleState: 'State 4A: Target Lock',
@@ -265,8 +265,8 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
     description: 'Exit 100% at SL hit; holding for M2 is forbidden unless trailing at BE + 1 tick',
   },
   {
-    id: 'u_x2_terminal_cutoff',
-    name: 'Uber: Terminal Cutoff Stop (U-X2)',
+    id: 'ub_x2_terminal_cutoff',
+    name: 'Uber: Terminal Cutoff Stop (UB-X2)',
     engine: 'UBER',
     phase: 'FINAL_EXIT',
     lifecycleState: 'State 4B: Stop Cut',
@@ -286,31 +286,31 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
     triggerMoment: 'Breakout signal generation',
-    eligiblePool: 'All candidate ULTRA signals (N = 199)',
+    eligiblePool: 'All candidate ULTRA signals (N = 87)',
     confidenceText: '82.8% Direct M1 Win Rate (N=72/87)',
-    description: 'prior_candles <= 8; BUY_STOP Bullish + Above EMA20, SELL_STOP Bearish + Below SMA9; Time < 14:15',
+    description: 'prior_candles <= 8; BUY_STOP Bullish + Above EMA20, SELL_STOP Bearish + Below SMA9',
   },
   {
-    id: 'ul_e2_threshold_confluence',
-    name: 'Ultra: Threshold Confluence Validation (UL-E2)',
+    id: 'ul_e2_threshold_cluster',
+    name: 'Ultra: Multi-Threshold Density Cluster & Completed Order (UL-E2)',
     engine: 'ULTRA',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
-    triggerMoment: 'Order placement',
-    eligiblePool: 'Signals passing UL-E1',
-    confidenceText: '84.2% Full Resolution Rate (N=120/142)',
-    description: 'Order triggers across >= 2 threshold tiers simultaneously. If single-tier in futures, discard',
+    triggerMoment: 'Order placement and execution',
+    eligiblePool: 'Signals passing UL-E1 (N = 66)',
+    confidenceText: '86.4% Direct M1 Win Rate (N=57/66)',
+    description: 'Order triggers across >= 2 threshold tiers simultaneously (|Thresh1 - Thresh2| <= 5 pts); status == completed, is_cancelled == NO',
   },
   {
-    id: 'ul_e3_anti_climax',
-    name: 'Ultra: Anti-Climax Climax Filter (UL-E3)',
+    id: 'ul_e3_calendar_day_rules',
+    name: 'Ultra: Calendar & Day-of-Week Rules (UL-E3)',
     engine: 'ULTRA',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
-    triggerMoment: 'Candidate screening',
-    eligiblePool: 'Breakout candidates',
-    confidenceText: 'Avoids 81.3% M1 Losses (N=91/112)',
-    description: 'Disqualify mature breakouts where prior_candles >= 20 and detached from MAs',
+    triggerMoment: 'Pre-entry timing check',
+    eligiblePool: 'Candidate ULTRA signals (N = 95)',
+    confidenceText: '82.1% Win Rate (N=78/95)',
+    description: 'Trade Tue, Wed, Thu (10:00–12:30 IST); On Mondays or Week 1, trade Cash Equities (NSE_EQ) only',
   },
   {
     id: 'ul_if1_trend_wave_hold',
@@ -325,7 +325,7 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
   },
   {
     id: 'ul_h1_cash_equity_shield',
-    name: 'Ultra: Cash Equity (NSE_EQ) Absorption Hold (UL-H1)',
+    name: 'Ultra: Cash Equity (NSE_EQ) Immunity Hold (UL-H1)',
     engine: 'ULTRA',
     phase: 'RECOVERY_HOLD',
     lifecycleState: 'State 3: Adverse Recovery Hold',
@@ -336,14 +336,14 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
   },
   {
     id: 'ul_h2_futures_5candle_test',
-    name: 'Ultra: Futures (NSE_FO) 5-Candle Invalidation Test (UL-H2)',
+    name: 'Ultra: Futures (NSE_FO) 5-Candle Dynamic Test (UL-H2)',
     engine: 'ULTRA',
     phase: 'RECOVERY_HOLD',
     lifecycleState: 'State 3: Adverse Recovery Hold',
     triggerMoment: 'Position suffers M1 Loss (hits SL). Position active',
     eligiblePool: 'ONLY active M1-loss positions in Futures (N = 48). N/A if M1 won or Cash',
     confidenceText: '84.6% M2 TP Recovery on Hold (N=22/26)',
-    description: 'Track 5 candles post-SL: HOLD if recrosses entry (crossings >= 1) & loss <= 3.5x; KILL if 0 crosses or loss > 3.5x',
+    description: 'At Candle 5 post-SL: HOLD if recrosses entry (crossings >= 1) & loss <= 3.5x; KILL if 0 crosses past > 3.0x loss',
   },
   {
     id: 'ul_x1_take_profit',
@@ -394,8 +394,8 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
     description: 'Prioritize Cash Equities (NSE_EQ) over derivatives',
   },
   {
-    id: 'meta_imminent_crossover',
-    name: 'Meta: Imminent Crossover State (≤ 10 bars)',
+    id: 'm_e3_imminent_crossover',
+    name: 'Meta: Imminent Crossover State (M-E3, ≤ 10 bars)',
     engine: 'META',
     phase: 'PRE_ENTRY',
     lifecycleState: 'State 0: Pre-Entry',
@@ -442,15 +442,15 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
   // 4. HIGH CONFLUENCE COMBINATIONS (>90% WIN RATE) & INVERSIONS
   // =========================================================================
   {
-    id: 'combo_uber_superset_93',
-    name: '1. UBER Mean-Reversion Super-Set (93.8% Win Rate)',
+    id: 'combo_uber_expiry_cycle_93',
+    name: '1. UBER Expiry-Cycle Mean Reversion (93.8% Win Rate)',
     engine: 'UBER',
     phase: 'COMBINATION',
     lifecycleState: 'State 0: Pre-Entry',
     triggerMoment: 'Pre-entry composite validation',
     eligiblePool: '32 qualifying UBER setups',
     confidenceText: '93.8% Win Rate (N=30/32)',
-    description: 'U-E1 Extension + U-E2 (10:00–13:00 IST) + Ratio >= 0.60 + MA Compression <= 0.04%',
+    description: 'UB-E1 (Inverted Cross + Ext) + Ratio >= 0.60 + Time 10:00–13:00 IST + Weeks 3, 4, 5 (Day >= 15)',
   },
   {
     id: 'combo_ultra_cash_sweep_92',
@@ -461,33 +461,22 @@ export const ALL_ENHANCED_RULES: EnhancedRuleDefinition[] = [
     triggerMoment: 'Order placement & hold in NSE_EQ',
     eligiblePool: '41 qualifying ULTRA setups',
     confidenceText: '92.7% Win Rate (N=38/41)',
-    description: 'NSE_EQ + Threshold Confluence >= 2 tiers + prior_candles <= 12',
-  },
-  {
-    id: 'combo_ultra_fresh_wave_91',
-    name: '3. ULTRA Fresh Wave Momentum (91.4% Direct M1)',
-    engine: 'ULTRA',
-    phase: 'COMBINATION',
-    lifecycleState: 'State 0: Pre-Entry',
-    triggerMoment: 'Fresh ignition order placement',
-    eligiblePool: '35 qualifying fresh setups',
-    confidenceText: '91.4% Direct M1 Win Rate (N=32/35)',
-    description: 'prior_candles <= 6 + Threshold Confluence >= 2 tiers + Time 10:00–12:30 IST',
+    description: 'NSE_EQ + prior_candles <= 8 + Threshold Gap <= 5 pts + status == completed',
   },
   {
     id: 'combo_ultra_eq_recovery_91',
-    name: '4. ULTRA Cash Equity M1 Recovery Well (91.9%)',
+    name: '3. ULTRA Cash Equity M1 Recovery (91.9% Recovery Rate)',
     engine: 'ULTRA',
     phase: 'COMBINATION',
     lifecycleState: 'State 3: Adverse Recovery Hold',
     triggerMoment: 'Position suffers M1 Loss in NSE_EQ',
     eligiblePool: '37 losing cash setups',
-    confidenceText: '91.9% M2 Recovery Rate (N=34/37)',
-    description: 'M1 Hit == SL + NSE_EQ + loss_before_return <= 3.5x',
+    confidenceText: '91.9% Recovery (N=34/37)',
+    description: 'M1 Hit == SL + Instrument == NSE_EQ + loss_multiple_before_return <= 3.5x',
   },
   {
     id: 'combo_ultra_fade_inversion_92',
-    name: '5. Late Futures Climax Fade Inversion (92.3%)',
+    name: '4. The Cancelled ULTRA Inversion Fade (92.3% Win Rate)',
     engine: 'ULTRA',
     phase: 'INVERSION',
     lifecycleState: 'State 0: Opposite Entry',
@@ -600,23 +589,36 @@ export class EnhancedFilterService {
   }
 
   /**
-   * Parse IST time (hours, minutes) from millisecond timestamp
+   * Parse IST time (hours, minutes) and calendar date metadata from millisecond timestamp
    */
-  static getISTTime(ts: number): { hours: number; minutes: number; timeStr: string } {
-    const istStr = UpstoxApiService.toISTString(ts);
-    const match = istStr.match(/(\d{2}):(\d{2}):(\d{2})/);
-    if (match) {
-      return {
-        hours: parseInt(match[1], 10),
-        minutes: parseInt(match[2], 10),
-        timeStr: `${match[1]}:${match[2]} IST`,
-      };
-    }
-    const d = new Date(ts);
+  static getISTTime(ts: number): {
+    hours: number;
+    minutes: number;
+    timeStr: string;
+    dayOfMonth: number;
+    dayOfWeek: number;
+    isWeek1: boolean;
+    isWeeks2To5: boolean;
+    isWeeks3To5: boolean;
+  } {
+    // India Standard Time is UTC + 5:30 (19,800,000 ms)
+    const istDate = new Date(ts + 19800000);
+    const hours = istDate.getUTCHours();
+    const minutes = istDate.getUTCMinutes();
+    const dayOfMonth = istDate.getUTCDate();
+    const dayOfWeek = istDate.getUTCDay(); // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+    const hoursStr = String(hours).padStart(2, '0');
+    const minutesStr = String(minutes).padStart(2, '0');
+
     return {
-      hours: d.getUTCHours(),
-      minutes: d.getUTCMinutes(),
-      timeStr: `${d.getUTCHours()}:${d.getUTCMinutes()}`,
+      hours,
+      minutes,
+      timeStr: `${hoursStr}:${minutesStr} IST`,
+      dayOfMonth,
+      dayOfWeek,
+      isWeek1: dayOfMonth <= 7,
+      isWeeks2To5: dayOfMonth >= 8,
+      isWeeks3To5: dayOfMonth >= 15,
     };
   }
 
@@ -655,20 +657,38 @@ export class EnhancedFilterService {
 
     // Backward-compatibility aliases
     const legacyAliases: Record<string, string> = {
-      uber_inverted_alignment: 'u_e1_rubber_band',
-      uber_geometry_symmetry: 'u_e1_rubber_band',
-      uber_timing_window: 'u_e2_liquidity_session',
-      u_e3_execution_window: 'u_e2_liquidity_session',
-      u_h1_zero_drawdown: 'u_if1_1_5tick_invalidation',
-      u_h2_m1_loss_recovery: 'u_h1_2x_gate',
-      u_x1_primary_win_lock: 'u_x1_direct_target',
-      u_x2_adverse_invalidation: 'u_x2_terminal_cutoff',
-      ultra_threshold_confluence: 'ul_e2_threshold_confluence',
+      // UBER aliases
+      u_e1_rubber_band: 'ub_e1_inverted_regime',
+      uber_inverted_alignment: 'ub_e1_inverted_regime',
+      uber_geometry_symmetry: 'ub_e2_geometry_calendar',
+      u_e2_liquidity_session: 'ub_e2_geometry_calendar',
+      u_e3_execution_window: 'ub_e2_geometry_calendar',
+      uber_timing_window: 'ub_e2_geometry_calendar',
+      uber_ma_compression: 'ub_e1_inverted_regime',
+      u_if1_1_5tick_invalidation: 'ub_h1_1_5tick_scratch',
+      u_h1_zero_drawdown: 'ub_h1_1_5tick_scratch',
+      u_h1_2x_gate: 'ub_h2_dynamic_invalidation_gate',
+      u_h2_m1_loss_recovery: 'ub_h2_dynamic_invalidation_gate',
+      u_x1_direct_target: 'ub_x1_direct_target',
+      u_x1_primary_win_lock: 'ub_x1_direct_target',
+      u_x2_terminal_cutoff: 'ub_x2_terminal_cutoff',
+      u_x2_adverse_invalidation: 'ub_x2_terminal_cutoff',
+      combo_uber_superset_93: 'combo_uber_expiry_cycle_93',
+
+      // ULTRA aliases
+      ul_e2_threshold_confluence: 'ul_e2_threshold_cluster',
+      ultra_threshold_confluence: 'ul_e2_threshold_cluster',
+      ul_e3_anti_climax: 'ul_e1_fresh_wave',
+      ultra_macro_trend: 'ul_e1_fresh_wave',
       ultra_segment_advantage: 'ul_h1_cash_equity_shield',
       ul_x1_target_capture: 'ul_x1_take_profit',
       ul_x2_eod_expiry: 'ul_x2_eod_time_stop',
+      combo_ultra_fresh_wave_91: 'combo_ultra_cash_sweep_92',
+
+      // META aliases
       meta_micro_momentum: 'm_e1_micro_momentum',
       meta_instrument_class: 'm_e2_segment_priority',
+      meta_imminent_crossover: 'm_e3_imminent_crossover',
       m_h1_zero_tolerance_stop: 'm_h1_zero_tolerance_loss',
       m_h2_dynamic_winner_trailing: 'm_x1_trailing_profit_lock',
       m_x1_trailing_runner_capture: 'm_x1_trailing_profit_lock',
@@ -707,11 +727,12 @@ export class EnhancedFilterService {
     );
     const { trade, entryIndicators, milestone1, milestone2, drawdown, isSuccess } = analysis;
     const engineType = this.getEngineType(trade.version);
-    const isBuy = trade.type === 'BUY_STOP' || trade.type === 'BUY';
-    const isNseEq = trade.instrument.startsWith('NSE_EQ') || trade.instrument.includes('_EQ');
-    const isNseFo = trade.instrument.startsWith('NSE_FO') || trade.instrument.includes('_FO');
-    const isCancelled = (trade.status || '').toLowerCase() === 'cancelled';
-    const { hours, minutes, timeStr } = this.getISTTime(trade.timestamp);
+    const isCancelled = Boolean((trade.status || '').toLowerCase() === 'cancelled' || (trade as any).is_cancelled === true || (trade as any).is_cancelled === 'YES');
+    const isCompleted = (trade.status || '').toLowerCase() === 'completed';
+    const isBuy = (trade.type || '').toUpperCase().includes('BUY');
+    const isNseEq = trade.instrument.includes('NSE_EQ') || trade.instrument.endsWith('_EQ') || (!trade.instrument.includes('NSE_FO') && !trade.instrument.includes('FUT') && !trade.instrument.includes('OPT'));
+    const isNseFo = !isNseEq;
+    const { hours, minutes, timeStr, dayOfMonth, dayOfWeek, isWeek1, isWeeks2To5, isWeeks3To5 } = this.getISTTime(trade.timestamp);
     const totalMinutes = hours * 60 + minutes;
 
     // Determine exact trade lifecycle state
@@ -739,6 +760,7 @@ export class EnhancedFilterService {
 
     // Multi-tier cluster count
     let clusterCount = 1;
+    let minThresholdGap = 999999;
     if (allTradesInBatch && allTradesInBatch.length > 0) {
       const siblings = allTradesInBatch.filter(
         (t) =>
@@ -746,7 +768,14 @@ export class EnhancedFilterService {
           Math.abs(t.timestamp - trade.timestamp) <= 300_000
       );
       clusterCount = siblings.length;
+      for (const sib of siblings) {
+        if (sib !== trade) {
+          const gap = Math.abs(trade.entry - sib.entry);
+          if (gap < minThresholdGap) minThresholdGap = gap;
+        }
+      }
     }
+    const hasThresholdCompressionGap = minThresholdGap <= 5 || clusterCount >= 2;
     const hasMultiTier = clusterCount >= 2 || (trade.confidence && trade.confidence >= 0.5) || trade.threshold >= 2;
 
     const highConfluenceCombinations: HighConfluenceCombinationMatch[] = [];
@@ -759,254 +788,179 @@ export class EnhancedFilterService {
       // -----------------------------------------------------------------------
       // Phase 1: Pre-Entry Protocol (State 0)
       // -----------------------------------------------------------------------
-      // Rule U-E1: Rubber-Band Price Extension Filter
-      // If SELL_STOP: Above SMA9 or SMA21; If BUY_STOP: Below SMA9 or SMA21; Ratio >= 0.60
-      const extensionValid = isBuy
+      // Rule UB-E1 (Inverted Regime & Extension Confluence)
+      // SELL_STOP: sma_crossover_state == BULLISH AND candle_position_wrt_ma contains "Above SMA9" or "Above SMA21".
+      // BUY_STOP: sma_crossover_state == BEARISH AND candle_position_wrt_ma contains "Below SMA9" or "Below SMA21".
+      // Confidence: 84.3% M1 Win Rate (N = 86 / 102).
+      const ubE1MacroValid = isBuy ? crossoverState === 'BEARISH' : crossoverState === 'BULLISH';
+      const ubE1ExtValid = isBuy
         ? posWrtMa.includes('below sma9') || posWrtMa.includes('below sma21') || (entryIndicators ? trade.entry < entryIndicators.smaFast : false)
         : posWrtMa.includes('above sma9') || posWrtMa.includes('above sma21') || (entryIndicators ? trade.entry > entryIndicators.smaFast : false);
-      const symmetryValid = symmetry >= 0.60;
-      const ue1Pass = Boolean(extensionValid && symmetryValid);
+      const ubE1Pass = Boolean(ubE1MacroValid && ubE1ExtValid);
 
       allRules.push({
-        id: 'u_e1_rubber_band',
-        name: 'Uber: Rubber-Band Price Extension Filter (U-E1)',
+        id: 'ub_e1_inverted_regime',
+        name: 'Uber: Inverted Regime & Extension Confluence (UB-E1)',
         phase: 'PRE_ENTRY',
         lifecycleState: 'State 0: Pre-Entry',
-        status: ue1Pass ? 'PASS' : 'FAIL',
-        achieved: ue1Pass,
+        status: ubE1Pass ? 'PASS' : 'FAIL',
+        achieved: ubE1Pass,
         isApplicable: true,
         triggerMoment: 'When stop signal is generated',
-        eligiblePool: 'All candidate UBER signals (N = 152)',
-        scoreContribution: ue1Pass ? 35 : extensionValid ? 20 : 0,
-        maxScore: 35,
-        confidenceText: '83.7% Direct M1 Win Rate (N=82/98)',
-        description: 'SELL_STOP above SMA9/21; BUY_STOP below SMA9/21; Geometry Ratio >= 0.60',
-        detail: `Extension: ${extensionValid ? 'Extended outside MAs ✓' : 'Inside Ribbon ✗'} | Ratio: ${symmetry.toFixed(2)} (${symmetryValid ? '>=0.60 ✓' : '<0.60 ✗'})`,
-        actionText: ue1Pass ? 'Authorize Entry Order' : 'Discard Candidate Signal',
+        eligiblePool: 'All candidate UBER signals (N = 102)',
+        scoreContribution: ubE1Pass ? 40 : ubE1ExtValid ? 20 : 0,
+        maxScore: 40,
+        confidenceText: '84.3% Direct M1 Win Rate (N=86/102)',
+        description: 'SELL_STOP in BULLISH cross + Above SMA9/21; BUY_STOP in BEARISH cross + Below SMA9/21',
+        detail: `Macro Cross: ${crossoverState || 'UNKNOWN'} (${ubE1MacroValid ? 'Inverted Pull ✓' : 'Direct Momentum ✗'}) | Micro Extension: ${ubE1ExtValid ? 'Outside Ribbon ✓' : 'Inside Ribbon ✗'}`,
+        actionText: ubE1Pass ? 'Authorize Counter-Trend Entry' : 'Discard Signal (Trend trap)',
       });
 
-      // Backward compatibility aliases
-      allRules.push({
-        id: 'uber_inverted_alignment',
-        name: 'Inverted Alignment',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: ue1Pass ? 'PASS' : 'FAIL',
-        achieved: ue1Pass,
-        isApplicable: true,
-        triggerMoment: 'State 0 Pre-Entry',
-        eligiblePool: 'All candidate UBER setups',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Rubber-band alignment',
-        detail: ue1Pass ? 'Pass' : 'Fail',
-        actionText: 'Authorize Entry',
-      });
+      // Rule UB-E2 (Target Geometry & Expiry Calendar)
+      // Geometry Ratio: |Entry - SL| / |Entry - TP| >= 0.60.
+      // Calendar Filter: Execution between 10:00 and 13:00 IST; Weeks 2, 3, 4, 5 of month (Block Week 1).
+      // Confidence: 88.2% M1 Win Rate (N = 45 / 51).
+      const ubE2SymmetryValid = symmetry >= 0.60;
+      const ubE2TimeValid = totalMinutes >= 600 && totalMinutes <= 780; // 10:00 - 13:00 IST
+      const ubE2CalendarValid = isWeeks2To5; // Days 8+ of month (Weeks 2, 3, 4, 5)
+      const ubE2Pass = Boolean(ubE2SymmetryValid && ubE2TimeValid && ubE2CalendarValid);
 
       allRules.push({
-        id: 'uber_geometry_symmetry',
-        name: 'Geometry Symmetry (>= 0.60)',
+        id: 'ub_e2_geometry_calendar',
+        name: 'Uber: Target Geometry & Expiry Calendar (UB-E2)',
         phase: 'PRE_ENTRY',
         lifecycleState: 'State 0: Pre-Entry',
-        status: symmetryValid ? 'PASS' : 'FAIL',
-        achieved: symmetryValid,
-        isApplicable: true,
-        triggerMoment: 'State 0 Pre-Entry',
-        eligiblePool: 'All candidate UBER setups',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Distance to SL / Distance to TP >= 0.60',
-        detail: `Ratio: ${symmetry.toFixed(2)}`,
-        actionText: symmetryValid ? 'Authorize' : 'Discard',
-      });
-
-      // Rule U-E2: Liquidity Session Filter
-      // Timestamp strictly 10:00–13:00 IST (reject before 09:35 or after 14:15 IST)
-      const ue2Pass = totalMinutes >= 600 && totalMinutes <= 780;
-      allRules.push({
-        id: 'u_e2_liquidity_session',
-        name: 'Uber: Liquidity Session Filter (U-E2, 10:00–13:00)',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: ue2Pass ? 'PASS' : 'FAIL',
-        achieved: ue2Pass,
+        status: ubE2Pass ? 'PASS' : 'FAIL',
+        achieved: ubE2Pass,
         isApplicable: true,
         triggerMoment: 'Pre-entry validation',
-        eligiblePool: 'Signals passing U-E1',
-        scoreContribution: ue2Pass ? 35 : totalMinutes >= 575 && totalMinutes <= 855 ? 15 : 0,
+        eligiblePool: 'Signals passing UB-E1 (N = 51)',
+        scoreContribution: ubE2Pass ? 35 : (ubE2SymmetryValid && ubE2TimeValid) ? 20 : ubE2SymmetryValid ? 10 : 0,
         maxScore: 35,
-        confidenceText: '85.7% Direct M1 Win Rate (N=24/28)',
-        description: 'Timestamp strictly 10:00–13:00 IST (avoids opening traps & EOD decay)',
-        detail: ue2Pass
-          ? `${timeStr} (Optimal morning liquidity window 10:00–13:00 IST ✓)`
-          : `${timeStr} (Outside 10:00–13:00 IST window)`,
-        actionText: ue2Pass ? 'Authorize Fill' : 'Reject Entry',
+        confidenceText: '88.2% Direct M1 Win Rate (N=45/51)',
+        description: 'Geometry Ratio >= 0.60; Execution between 10:00 and 13:00 IST; Weeks 2, 3, 4, 5 (Block Week 1)',
+        detail: `Ratio: ${symmetry.toFixed(2)} (${ubE2SymmetryValid ? '>=0.60 ✓' : '<0.60 ✗'}) | Time: ${timeStr} (${ubE2TimeValid ? '10:00-13:00 ✓' : 'Outside ✗'}) | Cycle: Day ${dayOfMonth} (${ubE2CalendarValid ? 'Weeks 2-5 ✓' : 'Week 1 Blocked ✗'})`,
+        actionText: ubE2Pass ? 'Authorize Order Sizing' : isWeek1 ? 'BLOCK UBER ENTRY (Week 1 Anomaly)' : 'Reject Geometry/Timing',
       });
 
+      // Rule UB-E3 (Execution Order Type / Wick Sweep)
+      // Engine bracket auto-cancels the secondary leg (is_cancelled == YES).
+      // Confidence: 89.5% M1 Win Rate (N = 51 / 57).
+      // UBER: Bracket auto-cancellation is the direct mechanical footprint of an instant wick fill -> high positive score (+25).
       allRules.push({
-        id: 'u_e3_execution_window',
-        name: 'Uber: Execution Window',
+        id: 'ub_e3_execution_order_type',
+        name: 'Uber: Execution Order Type / Wick Sweep (UB-E3)',
         phase: 'PRE_ENTRY',
         lifecycleState: 'State 0: Pre-Entry',
-        status: ue2Pass ? 'PASS' : 'FAIL',
-        achieved: ue2Pass,
+        status: isCancelled ? 'PASS' : 'FAIL',
+        achieved: isCancelled,
         isApplicable: true,
-        triggerMoment: 'Pre-entry',
-        eligiblePool: 'Candidate signals',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Execution window',
-        detail: ue2Pass ? 'Pass' : 'Fail',
-        actionText: ue2Pass ? 'Authorize' : 'Reject',
-      });
-
-      allRules.push({
-        id: 'uber_timing_window',
-        name: 'Timing Window',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: ue2Pass ? 'PASS' : 'FAIL',
-        achieved: ue2Pass,
-        isApplicable: true,
-        triggerMoment: 'Pre-entry',
-        eligiblePool: 'Candidate signals',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Execute between 10:00 and 13:00 IST',
-        detail: ue2Pass ? 'Pass' : 'Fail',
-        actionText: 'Authorize',
-      });
-
-      // Rule U-E-MA: MA Compression Filter (<= 0.04%)
-      const compressionPass = Boolean(entryIndicators && maCompressionRatio <= 0.0004);
-      allRules.push({
-        id: 'uber_ma_compression',
-        name: 'Uber: MA Compression Filter (≤ 0.04%)',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: compressionPass ? 'PASS' : 'FAIL',
-        achieved: compressionPass,
-        isApplicable: true,
-        triggerMoment: 'Order placement calculation',
-        eligiblePool: 'Candidate UBER setups',
-        scoreContribution: compressionPass ? 30 : 0,
-        maxScore: 30,
-        confidenceText: 'Conjoint Super-Set Component',
-        description: '|SMA Fast - EMA 20| / Entry <= 0.04% (tight cluster compression)',
-        detail: entryIndicators
-          ? `${(maCompressionRatio * 100).toFixed(3)}% (Threshold: 0.040%)`
-          : 'Pending MA indicators',
-        actionText: compressionPass ? 'Super-Set Alignment' : 'Loose MA Spread',
+        triggerMoment: 'Order execution log',
+        eligiblePool: 'Filled bracket orders (N = 57)',
+        scoreContribution: isCancelled ? 25 : 0,
+        maxScore: 25,
+        confidenceText: '89.5% Direct M1 Win Rate (N=51/57)',
+        description: 'Engine bracket auto-cancels secondary leg (is_cancelled == YES; instant wick fill footprint)',
+        detail: isCancelled
+          ? 'Bracket auto-cancellation detected (is_cancelled == YES ✓ Direct mechanical footprint of wick sweep fill)'
+          : 'Standard order execution (is_cancelled == NO)',
+        actionText: isCancelled ? 'High Confluence Wick Sweep Confirmed' : 'Standard Execution',
       });
 
       // -----------------------------------------------------------------------
       // Phase 2: In-Flight Execution (State 1: Entry -> M1)
       // -----------------------------------------------------------------------
-      // Rule U-IF1: The 1.5-Tick Adverse Invalidation (Enforced Zero-Drawdown)
-      // Trigger Moment: Active in-flight (Candles 1-2 post-fill). If adverse >= 1.5 ticks, Market Scratch Exit.
-      const uif1Pass = drawdown ? drawdown.drawdownTicks <= 1.5 || drawdown.maxLossMultiple === 0 : true;
+      // Rule UB-H1 (The 1.5-Tick Scratch Rule)
+      // Continuous per-tick check for first 120 seconds post-entry.
+      // If adverse heat >= 1.5 ticks toward TP, fire immediate Market Scratch Exit.
+      // 89.7% of genuine UBER winners hit SL with 0.00 adverse movement. Holding beyond 1.5 ticks yields 92.3% full M1 loss.
+      const ubH1Pass = drawdown ? drawdown.drawdownTicks <= 1.5 || drawdown.maxLossMultiple === 0 : true;
       allRules.push({
-        id: 'u_if1_1_5tick_invalidation',
-        name: 'Uber: 1.5-Tick Adverse Invalidation (U-IF1)',
+        id: 'ub_h1_1_5tick_scratch',
+        name: 'Uber: 1.5-Tick Scratch Rule (UB-H1)',
         phase: 'IN_FLIGHT',
         lifecycleState: 'State 1: In-Flight Entry -> M1',
-        status: uif1Pass ? 'PASS' : 'FAIL',
-        achieved: uif1Pass,
+        status: ubH1Pass ? 'PASS' : 'FAIL',
+        achieved: ubH1Pass,
         isApplicable: true,
-        triggerMoment: 'Candles 1 to 2 post-fill (Continuous tick check)',
+        triggerMoment: 'First 120 seconds post-fill (Continuous tick check)',
         eligiblePool: 'All filled, active UBER positions (N = 94)',
         scoreContribution: 0,
         maxScore: 0,
-        confidenceText: '89.7% of genuine UBER winners hit SL with 0.00 adverse movement (N=52/58)',
-        description: 'If price moves adversely toward TP by >= 1.5 ticks, fire immediate Market Scratch Exit',
+        confidenceText: '89.7% Zero Adverse Heat (N=52/58 hit SL at 0.00 ticks)',
+        description: 'If price moves adversely toward TP by >= 1.5 ticks in first 120s, fire immediate Market Scratch Exit',
         detail: drawdown
           ? `Adverse excursion: ${drawdown.drawdownTicks.toFixed(1)} ticks (Max Loss Multiple: ${drawdown.maxLossMultiple.toFixed(2)}x)`
           : 'Awaiting in-flight ticks',
-        actionText: uif1Pass ? 'Hold cleanly to SL' : 'Trigger Market Scratch Exit at 1.5 ticks',
-      });
-
-      allRules.push({
-        id: 'u_h1_zero_drawdown',
-        name: 'Uber: Zero-Drawdown Verification',
-        phase: 'IN_FLIGHT',
-        lifecycleState: 'State 1: In-Flight',
-        status: uif1Pass ? 'PASS' : 'FAIL',
-        achieved: uif1Pass,
-        isApplicable: true,
-        triggerMoment: 'State 1 In-Flight',
-        eligiblePool: 'Active positions',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Zero drawdown check',
-        detail: uif1Pass ? 'Pass' : 'Fail',
-        actionText: 'Scratch Exit if >= 1.5 ticks',
+        actionText: ubH1Pass ? 'Hold cleanly to SL (Zero Drawdown Edge)' : 'Trigger Market Scratch Exit at 1.5 ticks',
       });
 
       // -----------------------------------------------------------------------
-      // Phase 3: Adverse Recovery Hold (State 3: M1 Lost -> Awaiting M2)
+      // Phase 3: Real-Time M1 Loss Recovery Protocol (State 3: M1 Lost -> Awaiting M2)
       // Strictly eligible ONLY if M1 is lost! If M1 is WON, State 3 Hold is NOT APPLICABLE!
       // -----------------------------------------------------------------------
-      // Rule U-H1: The 2.0x Mean-Reversion Gate
-      let uh1Status: RuleStatus = 'NOT_APPLICABLE';
-      let uh1Detail = 'NOT APPLICABLE: Position won M1 directly; Hold Protocol exclusively applies to State 3 adverse losses.';
-      let uh1Action = 'N/A (Trade captured M1 Win)';
+      // Rule UB-H2 (Dynamic Invalidation Stop)
+      // State Machine with Dynamic Invalidation Gate:
+      // State: [M1_LOSS_ACTIVE]
+      // IF adverse_loss_multiple touches > 2.0x AND entry_recrossed == FALSE:
+      //      └──► TERMINATE TRADE IMMEDIATELY (HARD KILL)
+      // IF current_price recrosses entry_price BEFORE adverse_loss reaches 2.0x:
+      //      ├── Flag: entry_recrossed = TRUE
+      //      ├── Move Stop to Break-Even (Original Entry)
+      //      └──► TRANSITION TO STATE: [HOLD_FOR_M2_RECOVERY] (83.3% Recovery to M2 SL)
+      let ubH2Status: RuleStatus = 'NOT_APPLICABLE';
+      let ubH2Detail = 'NOT APPLICABLE: Position won M1 directly; Hold Protocol exclusively applies to State 3 adverse losses.';
+      let ubH2Action = 'N/A (Trade captured M1 Win)';
 
       if (isM1Loss) {
-        const meetsGate = drawdown.lossMultipleBeforeEntryReturn <= 2.0 && drawdown.entryCrossCount >= 1;
-        uh1Status = meetsGate ? 'PASS' : 'FAIL';
-        uh1Detail = meetsGate
-          ? `Adverse loss ${drawdown.lossMultipleBeforeEntryReturn.toFixed(2)}x <= 2.0x AND recrossed entry ${drawdown.entryCrossCount}x ✓ 83.3% M2 recovery`
-          : `Expanded past 2.0x (${drawdown.lossMultipleBeforeEntryReturn.toFixed(2)}x) or 0 entry recrosses (${drawdown.entryCrossCount}) ✗`;
-        uh1Action = meetsGate ? 'HOLD position for M2 SL target' : 'ABORT / CUT position immediately';
+        const touchedOver2xWithoutRecross = drawdown.lossMultipleBeforeEntryReturn > 2.0 || (drawdown.maxLossMultiple > 2.0 && drawdown.entryCrossCount === 0);
+        const recrossedBefore2x = drawdown.entryCrossCount >= 1 && drawdown.lossMultipleBeforeEntryReturn <= 2.0;
+
+        if (touchedOver2xWithoutRecross) {
+          ubH2Status = 'FAIL';
+          ubH2Detail = `🚨 HARD KILL TRIGGERED: Adverse loss touched > 2.0x (${drawdown.lossMultipleBeforeEntryReturn.toFixed(2)}x) before recrossing entry. 0.0% recovery probability.`;
+          ubH2Action = 'TERMINATE TRADE IMMEDIATELY (HARD KILL)';
+        } else if (recrossedBefore2x) {
+          ubH2Status = 'PASS';
+          ubH2Detail = `✓ ENTRY RECROSSED: Price returned to entry after ${drawdown.lossMultipleBeforeEntryReturn.toFixed(2)}x loss (<= 2.0x). Stop moved to BE. 83.3% M2 SL recovery rate (N=25/30).`;
+          ubH2Action = 'Move Stop to Break-Even -> TRANSITION TO STATE: [HOLD_FOR_M2_RECOVERY]';
+        } else {
+          ubH2Status = 'PASS';
+          ubH2Detail = `State: [M1_LOSS_ACTIVE] Current adverse loss ${drawdown.maxLossMultiple.toFixed(2)}x <= 2.0x. Monitoring for entry recross.`;
+          ubH2Action = 'State: [M1_LOSS_ACTIVE] Watch for entry recross before 2.0x loss';
+        }
       }
 
       allRules.push({
-        id: 'u_h1_2x_gate',
-        name: 'Uber: 2.0x Mean-Reversion Gate (U-H1)',
+        id: 'ub_h2_dynamic_invalidation_gate',
+        name: 'Uber: Dynamic Invalidation Stop (UB-H2)',
         phase: 'RECOVERY_HOLD',
         lifecycleState: 'State 3: Adverse Recovery Hold',
-        status: uh1Status,
-        achieved: uh1Status === 'PASS',
+        status: ubH2Status,
+        achieved: ubH2Status === 'PASS',
         isApplicable: isM1Loss,
-        triggerMoment: 'M1 hits TP (Adverse Loss). Position active/open',
-        eligiblePool: 'ONLY active positions that lost M1 (N = 36). N/A if M1 won',
+        triggerMoment: 'M1 hits TP (Adverse Loss). Position active in State 3',
+        eligiblePool: 'ONLY active open positions where M1 hit TP (Loss, N = 30). N/A if M1 won',
         scoreContribution: 0,
         maxScore: 0,
-        confidenceText: '83.3% M2 SL Recovery Rate (N=25/30)',
-        description: 'Hold ONLY if loss <= 2.0x AND entry_cross_count >= 1 within 10 min. Kill if > 2.0x with 0 touches',
-        detail: uh1Detail,
-        actionText: uh1Action,
-      });
-
-      allRules.push({
-        id: 'u_h2_m1_loss_recovery',
-        name: 'Uber: M1 Loss Recovery Hold',
-        phase: 'RECOVERY_HOLD',
-        lifecycleState: 'State 3: Adverse Recovery Hold',
-        status: uh1Status,
-        achieved: uh1Status === 'PASS',
-        isApplicable: isM1Loss,
-        triggerMoment: 'State 3 Recovery',
-        eligiblePool: 'Losing positions only',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Hold for M2 SL',
-        detail: uh1Detail,
-        actionText: uh1Action,
+        confidenceText: '83.3% Recovery Rate to M2 SL (N=25/30)',
+        description: 'Kill immediately if adverse touches > 2.0x while entry_cross_count == 0; Hold for M2 if price recrosses entry before 2.0x loss',
+        detail: ubH2Detail,
+        actionText: ubH2Action,
       });
 
       // -----------------------------------------------------------------------
       // Phase 4: Final Exit (State 4)
       // -----------------------------------------------------------------------
-      // Rule U-X1: Direct Target Capture (SL Exit)
-      const ux1Achieved = isWonM1;
+      // Rule UB-X1: Direct Target Capture (SL Exit / 100% Win Lock)
+      const ubX1Achieved = isWonM1;
       allRules.push({
-        id: 'u_x1_direct_target',
-        name: 'Uber: Direct Target Capture (U-X1)',
+        id: 'ub_x1_direct_target',
+        name: 'Uber: Direct Target Capture (UB-X1)',
         phase: 'FINAL_EXIT',
         lifecycleState: 'State 4A: Target Lock',
-        status: ux1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
-        achieved: ux1Achieved,
+        status: ubX1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
+        achieved: ubX1Achieved,
         isApplicable: Boolean(milestone1),
         triggerMoment: 'M1 SL Hit',
         eligiblePool: 'All winning UBER trades',
@@ -1014,40 +968,23 @@ export class EnhancedFilterService {
         maxScore: 0,
         confidenceText: '100% Target Close',
         description: 'Exit 100% at SL hit; holding for M2 is forbidden unless trailing at BE + 1 tick',
-        detail: ux1Achieved
+        detail: ubX1Achieved
           ? `M1 SL target hit in ${milestone1?.timeTakenFormatted} (${milestone1?.ticks.toFixed(1)} ticks) ✓ Full Win Locked`
           : milestone1
           ? 'M1 hit adverse TP barrier (See State 3 Hold Protocol)'
           : 'Awaiting M1 resolution',
-        actionText: ux1Achieved ? 'Bank 100% Profit at Market' : 'Awaiting Target Fill',
+        actionText: ubX1Achieved ? 'Bank 100% Profit at Market' : 'Awaiting Target Fill',
       });
 
+      // Rule UB-X2: Terminal Cutoff Stop (> 2.5x with 0 recross)
+      const ubX2Tripped = isM1Loss && drawdown.maxLossMultiple > 2.5 && drawdown.entryCrossCount === 0;
       allRules.push({
-        id: 'u_x1_primary_win_lock',
-        name: 'Uber: Primary Win Lock',
-        phase: 'FINAL_EXIT',
-        lifecycleState: 'State 4A: Target Lock',
-        status: ux1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
-        achieved: ux1Achieved,
-        isApplicable: Boolean(milestone1),
-        triggerMoment: 'State 4A Target Lock',
-        eligiblePool: 'Winning trades',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Primary win lock at SL',
-        detail: ux1Achieved ? 'Pass' : 'Fail',
-        actionText: 'Close 100%',
-      });
-
-      // Rule U-X2: Terminal Cutoff Stop (> 2.5x with 0 recross)
-      const ux2Tripped = isM1Loss && drawdown.maxLossMultiple > 2.5 && drawdown.entryCrossCount === 0;
-      allRules.push({
-        id: 'u_x2_terminal_cutoff',
-        name: 'Uber: Terminal Cutoff Stop (U-X2)',
+        id: 'ub_x2_terminal_cutoff',
+        name: 'Uber: Terminal Cutoff Stop (UB-X2)',
         phase: 'FINAL_EXIT',
         lifecycleState: 'State 4B: Stop Cut',
-        status: isM1Loss ? (ux2Tripped ? 'FAIL' : 'PASS') : 'NOT_APPLICABLE',
-        achieved: !ux2Tripped,
+        status: isM1Loss ? (ubX2Tripped ? 'FAIL' : 'PASS') : 'NOT_APPLICABLE',
+        achieved: !ubX2Tripped,
         isApplicable: isM1Loss,
         triggerMoment: 'Adverse expansion during State 3',
         eligiblePool: 'Losing positions expanding past 2.5x',
@@ -1056,80 +993,63 @@ export class EnhancedFilterService {
         confidenceText: 'Avoids 100% Catastrophic Drift (N=0/19 recovered)',
         description: 'If State 3 active and loss expands past > 2.5x without recross, hard close at market',
         detail: isM1Loss
-          ? ux2Tripped
+          ? ubX2Tripped
             ? `🚨 HARD CUT TRIPPED: Max Loss ${drawdown.maxLossMultiple.toFixed(2)}x > 2.5x with 0 entry recrosses! Hard close immediately.`
             : `Loss contained (${drawdown.maxLossMultiple.toFixed(2)}x) with ${drawdown.entryCrossCount} crossings ✓`
           : 'NOT APPLICABLE: Trade did not suffer an adverse loss.',
-        actionText: ux2Tripped ? 'HARD CLOSE AT MARKET' : 'Maintain Active Rules',
+        actionText: ubX2Tripped ? 'HARD CLOSE AT MARKET' : 'Maintain Active Rules',
       });
 
+      // Combination 1: UBER Expiry-Cycle Mean Reversion (93.8% Win Rate)
+      // UB-E1 (Inverted Cross + Ext) + Ratio >= 0.60 + Time 10:00–13:00 + Weeks 3, 4, 5 (Day >= 15)
+      const comboUberExpiryCycle = ubE1Pass && ubE2SymmetryValid && ubE2TimeValid && isWeeks3To5;
       allRules.push({
-        id: 'u_x2_adverse_invalidation',
-        name: 'Uber: Adverse Invalidation Stop',
-        phase: 'FINAL_EXIT',
-        lifecycleState: 'State 4B: Stop Cut',
-        status: isM1Loss ? (ux2Tripped ? 'FAIL' : 'PASS') : 'NOT_APPLICABLE',
-        achieved: !ux2Tripped,
-        isApplicable: isM1Loss,
-        triggerMoment: 'State 4B Stop Cut',
-        eligiblePool: 'Losing positions',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Terminal stop',
-        detail: !ux2Tripped ? 'Pass' : 'Fail',
-        actionText: 'Hard close if tripped',
-      });
-
-      // Check Combination 1: UBER Mean-Reversion Super-Set (93.8% Win Rate)
-      // Pre-Entry (State 0): U-E1 (Extension + Ratio >= 0.60) + U-E2 (10:00–13:00 IST) + MA Compression <= 0.04%
-      const comboUberSuperset = ue1Pass && ue2Pass && compressionPass;
-      allRules.push({
-        id: 'combo_uber_superset_93',
-        name: '1. UBER Mean-Reversion Super-Set (93.8% Win Rate)',
+        id: 'combo_uber_expiry_cycle_93',
+        name: '1. UBER Expiry-Cycle Mean Reversion (93.8% Win Rate)',
         phase: 'COMBINATION',
         lifecycleState: 'State 0: Pre-Entry',
-        status: comboUberSuperset ? 'PASS' : 'FAIL',
-        achieved: comboUberSuperset,
+        status: comboUberExpiryCycle ? 'PASS' : 'FAIL',
+        achieved: comboUberExpiryCycle,
         isApplicable: true,
         triggerMoment: 'Pre-entry composite validation',
         eligiblePool: '32 qualifying UBER setups',
         scoreContribution: 0,
         maxScore: 0,
         confidenceText: '93.8% Win Rate (N=30/32)',
-        description: 'U-E1 Extension + U-E2 (10:00–13:00 IST) + Ratio >= 0.60 + MA Compression <= 0.04%',
-        detail: comboUberSuperset
-          ? '🌟 FULL UBER SUPER-SET CONFLUENCE ACHIEVED (93.8% Historical Win Rate)'
-          : 'Did not meet all 4 simultaneous Super-Set criteria',
-        actionText: comboUberSuperset ? 'Authorize High-Conviction Fill' : 'Standard Sizing',
+        description: 'UB-E1 (Inverted Cross + Ext) + Ratio >= 0.60 + Time 10:00–13:00 IST + Weeks 3, 4, 5 (Day >= 15)',
+        detail: comboUberExpiryCycle
+          ? '💎 UBER EXPIRY-CYCLE MEAN REVERSION ACHIEVED (93.8% Win Rate)'
+          : 'Did not meet all Expiry-Cycle Mean Reversion criteria',
+        actionText: comboUberExpiryCycle ? 'Authorize High-Confidence Scalp' : 'Standard Sizing',
       });
 
-      if (comboUberSuperset) {
+      if (comboUberExpiryCycle) {
         highConfluenceCombinations.push({
-          id: 'combo_uber_superset_93',
-          name: 'UBER Mean-Reversion Super-Set',
+          id: 'combo_uber_expiry_cycle_93',
+          name: 'UBER Expiry-Cycle Mean Reversion',
           winRate: 93.8,
           engine: 'UBER',
-          badgeLabel: '93.8% UBER SUPER-SET',
-          description: 'U-E1 Extension + U-E2 (10:00–13:00 IST) + Ratio >= 0.60 + MA Compression <= 0.04%',
+          badgeLabel: '93.8% EXPIRY CYCLE',
+          description: 'UB-E1 (Inverted Cross + Ext) + Ratio >= 0.60 + Time 10:00–13:00 + Weeks 3, 4, 5',
           phaseTarget: 'Pre-Entry (State 0)',
         });
       }
 
       // Lifecycle Advice for UBER
-      let inFlightAdvice = 'Hold in-flight: continuous tick check. If adverse movement reaches >= 1.5 ticks in first 2 mins, fire Market Scratch Exit.';
+      let inFlightAdvice = 'Hold in-flight: continuous tick check. If adverse movement reaches >= 1.5 ticks in first 120s, fire Market Scratch Exit.';
       let holdAdvice = 'State 3 Hold Protocol: NOT APPLICABLE unless trade suffers an M1 loss.';
       if (isM1Loss) {
         if (drawdown.lossMultipleBeforeEntryReturn <= 2.0 && drawdown.entryCrossCount >= 1) {
-          holdAdvice = '✓ STATE 3 HOLD ACTIVE: Loss <= 2.0x and price recrossed entry. 83.3% historical probability of M2 (SL) recovery.';
-        } else if (drawdown.maxLossMultiple > 2.5 && drawdown.entryCrossCount === 0) {
-          holdAdvice = '🚨 STATE 3 HARD CUT TRIGGERED: Loss exceeded 2.5x with 0 entry recrosses! 0.0% recovery rate. Kill immediately.';
+          holdAdvice = '✓ STATE 3 HOLD ACTIVE: Loss <= 2.0x and price recrossed entry. Move stop to Break-Even. 83.3% historical probability of M2 (SL) recovery.';
+        } else if (drawdown.lossMultipleBeforeEntryReturn > 2.0 || (drawdown.maxLossMultiple > 2.0 && drawdown.entryCrossCount === 0)) {
+          holdAdvice = '🚨 STATE 3 HARD KILL TRIGGERED: Adverse loss touched > 2.0x without recrossing entry! Kill immediately.';
         } else {
-          holdAdvice = '⚠️ STATE 3 ACTIVE WATCH: Monitoring for entry recross. Abort immediately if loss exceeds 2.0x without touching entry.';
+          holdAdvice = 'State: [M1_LOSS_ACTIVE] Monitoring for entry recross before 2.0x loss.';
         }
       }
 
       let exitAdvice = 'Exit 100% on M1 SL hit. Holding for M2 TP is forbidden unless trailing at break-even + 1 tick.';
-      if (ux1Achieved) {
+      if (ubX1Achieved) {
         exitAdvice = '✓ STATE 4A TARGET LOCKED: 100% profit captured at M1 SL hit. Position successfully resolved.';
       }
 
@@ -1154,9 +1074,9 @@ export class EnhancedFilterService {
         lifecycleAdvice: {
           lifecycleState,
           entryVerdict: preEntryScore >= 70 ? 'PASS' : preEntryScore >= 40 ? 'WARN' : 'REJECT',
-          entryReason: ue1Pass
-            ? 'Rubber-band extension confirmed outside moving averages with symmetrical ratio >= 0.60.'
-            : 'Price inside ribbon or insufficient geometry symmetry.',
+          entryReason: ubE1Pass
+            ? 'Rubber-band extension confirmed counter to macro crossover with symmetrical ratio >= 0.60.'
+            : 'Price inside ribbon or direct momentum trend trap.',
           inFlightAdvice,
           holdAdvice,
           exitAdvice,
@@ -1176,12 +1096,12 @@ export class EnhancedFilterService {
           tradeType: 'Mean-Reversion Rubber-Band Scalp',
           optimalHoldWin: '1 to 4 minutes (1–4 candles)',
           maxHoldWin: '10 minutes (Hard Exit)',
-          optimalHoldLoss: 'Cut immediately if adverse moves >= 1.5 ticks in first 2 mins',
+          optimalHoldLoss: 'Cut immediately if adverse moves >= 1.5 ticks in first 120s',
           targetProfitMultiple: '100% exit at M1 SL hit',
           maxDrawdownAllowed: '1.5 ticks (Scratch exit if exceeded)',
           primaryCloseIndicator: 'M1 SL Hit (100% close) OR Adverse >= 1.5 ticks in-flight OR Terminal Stop > 2.5x',
           lossManagementRule:
-            'State 3 Hold Protocol: If M1 hits TP (loss), hold ONLY IF loss <= 2.0x AND price recrosses entry (83.3% recovery). If loss > 2.5x with 0 touches -> KILL IMMEDIATELY.',
+            'State 3 Hold Protocol: If M1 hits TP (loss), hold ONLY IF loss <= 2.0x AND price recrosses entry (83.3% recovery). If loss > 2.0x without entry recross -> KILL IMMEDIATELY.',
           liveStatusAdvice: holdAdvice,
         },
       };
@@ -1194,14 +1114,17 @@ export class EnhancedFilterService {
       // -----------------------------------------------------------------------
       // Phase 1: Pre-Entry Protocol (State 0)
       // -----------------------------------------------------------------------
-      // Rule UL-E1: Fresh Wave Ignition Filter
-      // prior_candles <= 8; BUY_STOP Bullish + Above EMA20, SELL_STOP Bearish + Below SMA9; Time < 14:15 IST
+      // Rule UL-E1 (Fresh Wave Ignition)
+      // Trend Age: sma_crossover_prior_candles is <= 8 candles.
+      // Directional Flow:
+      // BUY_STOP: sma_crossover_state == BULLISH, candle_direction == BULLISH, price Above EMA20.
+      // SELL_STOP: sma_crossover_state == BEARISH, candle_direction == BEARISH, price Below SMA9.
+      // Confidence: 82.8% Direct M1 Win Rate (N = 72 / 87).
       const crossoverFresh = crossoverAge >= 1 && crossoverAge <= 8;
       const dirAlignment = isBuy
-        ? candleDir === 'BULLISH' && (entryIndicators ? trade.entry >= entryIndicators.ema20 : true)
-        : candleDir === 'BEARISH' && (entryIndicators ? trade.entry <= entryIndicators.smaFast : true);
-      const timeBeforeEOD = totalMinutes < 855; // 14:15 IST
-      const ule1Pass = Boolean(crossoverFresh && dirAlignment && timeBeforeEOD);
+        ? crossoverState === 'BULLISH' && candleDir === 'BULLISH' && (entryIndicators ? trade.entry >= entryIndicators.ema20 : true)
+        : crossoverState === 'BEARISH' && candleDir === 'BEARISH' && (entryIndicators ? trade.entry <= entryIndicators.smaFast : true);
+      const ule1Pass = Boolean(crossoverFresh && dirAlignment);
 
       allRules.push({
         id: 'ul_e1_fresh_wave',
@@ -1212,101 +1135,94 @@ export class EnhancedFilterService {
         achieved: ule1Pass,
         isApplicable: true,
         triggerMoment: 'Breakout signal generation',
-        eligiblePool: 'All candidate ULTRA signals (N = 199)',
+        eligiblePool: 'All candidate ULTRA signals (N = 87)',
         scoreContribution: ule1Pass ? 40 : crossoverFresh || dirAlignment ? 20 : 0,
         maxScore: 40,
         confidenceText: '82.8% Direct M1 Win Rate (N=72/87)',
-        description: 'prior_candles <= 8; BUY_STOP Bullish + Above EMA20, SELL_STOP Bearish + Below SMA9; Time < 14:15',
-        detail: `Crossover Age: ${crossoverAge} bars (${crossoverFresh ? '<=8 Fresh ✓' : 'Mature/Stale ✗'}) | Direction: ${candleDir} | Time: ${timeStr}`,
+        description: 'prior_candles <= 8; BUY_STOP Bullish + Above EMA20, SELL_STOP Bearish + Below SMA9',
+        detail: `Crossover Age: ${crossoverAge} bars (${crossoverFresh ? '<=8 Fresh ✓' : 'Mature/Stale ✗'}) | Direction: ${candleDir} | Flow: ${dirAlignment ? 'Aligned ✓' : 'Misaligned ✗'}`,
         actionText: ule1Pass ? 'Place Stop Order in Book' : 'Discard Mature/Late Breakout',
       });
 
-      // Rule UL-E2: Threshold Confluence Validation
-      // Order triggers across >= 2 threshold tiers simultaneously. If single-tier in futures, discard.
-      const ule2Pass = hasMultiTier;
+      // Rule UL-E2 (Multi-Threshold Density Cluster & Completed Order)
+      // Order triggers across >= 2 threshold tiers simultaneously with compression gap |Threshold1 - Threshold2| <= 5 points.
+      // Execution must be status == completed, is_cancelled == NO (Sustained institutional fill; reject if is_cancelled == YES).
+      // Confidence: 86.4% Direct M1 Win Rate (N = 57 / 66).
+      const ule2MultiTier = hasMultiTier && hasThresholdCompressionGap;
+      const ule2ExecutionValid = isCompleted && !isCancelled;
+      const ule2Pass = Boolean(ule2MultiTier && ule2ExecutionValid);
+
       allRules.push({
-        id: 'ul_e2_threshold_confluence',
-        name: 'Ultra: Threshold Confluence Validation (UL-E2)',
+        id: 'ul_e2_threshold_cluster',
+        name: 'Ultra: Multi-Threshold Density Cluster & Completed Order (UL-E2)',
         phase: 'PRE_ENTRY',
         lifecycleState: 'State 0: Pre-Entry',
         status: ule2Pass ? 'PASS' : 'FAIL',
         achieved: ule2Pass,
         isApplicable: true,
-        triggerMoment: 'Order placement',
-        eligiblePool: 'Signals passing UL-E1',
-        scoreContribution: ule2Pass ? 35 : 0,
+        triggerMoment: 'Order placement and execution',
+        eligiblePool: 'Signals passing UL-E1 (N = 66)',
+        scoreContribution: ule2Pass ? 35 : (ule2MultiTier && !isCancelled) ? 15 : 0,
         maxScore: 35,
-        confidenceText: '84.2% Full Resolution Rate (N=120/142)',
-        description: 'Order triggers across >= 2 threshold tiers simultaneously. If single-tier in futures, discard',
+        confidenceText: '86.4% Direct M1 Win Rate (N=57/66)',
+        description: 'Order triggers across >= 2 threshold tiers simultaneously (|Thresh1 - Thresh2| <= 5 pts); status == completed, is_cancelled == NO',
         detail: ule2Pass
-          ? `Multi-tier confluence verified (${clusterCount} sibling signals in cluster, threshold: ${trade.threshold})`
-          : `Single-tier signal (${clusterCount} signal in cluster, sub-optimal in futures)`,
-        actionText: ule2Pass ? 'Authorize Execution' : isNseFo ? 'Discard Single-Tier Futures Signal' : 'Standard Execution',
+          ? `Multi-tier density verified (${clusterCount} sibling signals in cluster, gap: ${minThresholdGap <= 50 ? minThresholdGap.toFixed(1) + ' pts' : 'N/A'}, status: ${trade.status}) ✓`
+          : isCancelled
+          ? '🚨 REJECTION TRAP FOOTPRINT: Order cancelled (is_cancelled == YES). Severe institutional failure penalty.'
+          : `Single-tier or uncompressed breakout (${clusterCount} signal, status: ${trade.status})`,
+        actionText: ule2Pass ? 'Authorize Institutional Fill' : isCancelled ? 'REJECT: Rejection Trap (Check Inversion Fade)' : 'Standard Execution',
       });
 
-      allRules.push({
-        id: 'ultra_threshold_confluence',
-        name: 'Threshold Confluence',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: ule2Pass ? 'PASS' : 'FAIL',
-        achieved: ule2Pass,
-        isApplicable: true,
-        triggerMoment: 'State 0 Pre-Entry',
-        eligiblePool: 'All candidate signals',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Threshold Confluence',
-        detail: ule2Pass ? 'Pass' : 'Fail',
-        actionText: 'Authorize',
-      });
+      // Rule UL-E3 (Calendar & Day-of-Week Rules)
+      // Trade Tuesdays (2), Wednesdays (3), and Thursdays (4) strictly 10:00–12:30 IST.
+      // On Mondays (1) or Week 1 (Days 1–7 of month), trade Cash Equities (NSE_EQ) only (eliminates opening gap traps).
+      // Confidence: 82.1% Win Rate (N = 78 / 95).
+      const inWindow1230 = totalMinutes >= 600 && totalMinutes <= 750; // 10:00 - 12:30 IST
+      const isMidWeek = dayOfWeek === 2 || dayOfWeek === 3 || dayOfWeek === 4; // Tue, Wed, Thu
+      const isMonday = dayOfWeek === 1;
 
-      // Rule UL-E3: Anti-Climax Climax Filter
-      // Disqualify mature breakout attempts where prior_candles >= 20 and detached from MAs
-      const isDetached = isBuy
-        ? posWrtMa.includes('above all') || (posWrtMa.includes('above sma9') && posWrtMa.includes('above sma21') && posWrtMa.includes('above ema20'))
-        : posWrtMa.includes('below all') || (posWrtMa.includes('below sma9') && posWrtMa.includes('below sma21') && posWrtMa.includes('below ema20'));
-      const isAntiClimaxTrap = crossoverAge >= 20 && isDetached;
-      const ule3Pass = !isAntiClimaxTrap;
+      let ule3Pass = false;
+      let ule3Detail = '';
+      if (isWeek1) {
+        // Week 1 rule: ALLOW ULTRA only on Cash Equities (NSE_EQ)
+        ule3Pass = Boolean(isNseEq && inWindow1230);
+        ule3Detail = isNseEq
+          ? `Week 1 Day ${dayOfMonth}: Cash Equities (NSE_EQ) permitted in 10:00–12:30 IST window ✓`
+          : `Week 1 Day ${dayOfMonth}: Futures blocked (Week 1 Cash Equity rule) ✗`;
+      } else if (isMonday) {
+        // Monday rule: Cash Equities only
+        ule3Pass = Boolean(isNseEq && inWindow1230);
+        ule3Detail = isNseEq
+          ? `Monday: Cash Equities (NSE_EQ) permitted in 10:00–12:30 IST window ✓`
+          : `Monday: Futures blocked (Monday opening gap filter) ✗`;
+      } else if (isMidWeek) {
+        ule3Pass = inWindow1230;
+        ule3Detail = inWindow1230
+          ? `Prime Mid-Week Window (Day ${dayOfWeek}, ${timeStr} between 10:00–12:30 IST) ✓`
+          : `Mid-Week but outside 10:00–12:30 IST window (${timeStr}) ✗`;
+      } else {
+        // Friday or other
+        ule3Pass = inWindow1230;
+        ule3Detail = `${timeStr} (Trading session)`;
+      }
 
       allRules.push({
-        id: 'ul_e3_anti_climax',
-        name: 'Ultra: Anti-Climax Climax Filter (UL-E3)',
+        id: 'ul_e3_calendar_day_rules',
+        name: 'Ultra: Calendar & Day-of-Week Rules (UL-E3)',
         phase: 'PRE_ENTRY',
         lifecycleState: 'State 0: Pre-Entry',
         status: ule3Pass ? 'PASS' : 'FAIL',
         achieved: ule3Pass,
         isApplicable: true,
-        triggerMoment: 'Candidate screening',
-        eligiblePool: 'Breakout candidates',
+        triggerMoment: 'Pre-entry timing check',
+        eligiblePool: 'Candidate ULTRA signals (N = 95)',
         scoreContribution: ule3Pass ? 25 : 0,
         maxScore: 25,
-        confidenceText: 'Avoids 81.3% M1 Losses (N=91/112)',
-        description: 'Disqualify mature breakouts where prior_candles >= 20 and detached from MAs',
-        detail: isAntiClimaxTrap
-          ? `🚨 ANTI-CLIMAX CLIMAX TRAP: Crossover age ${crossoverAge}b >= 20 and detached from MAs. Eligible for Fade Inversion.`
-          : `Clean trend structure (Age: ${crossoverAge}b, not detached) ✓`,
-        actionText: ule3Pass ? 'Authorize Breakout' : 'DISCARD BREAKOUT (Trigger Fade Inversion)',
-      });
-
-      // Macro trend alignment
-      const macroTrend = (isBuy && crossoverState === 'BULLISH') || (!isBuy && crossoverState === 'BEARISH');
-      allRules.push({
-        id: 'ultra_macro_trend',
-        name: 'Ultra: Macro Trend Alignment',
-        phase: 'PRE_ENTRY',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: macroTrend ? 'PASS' : 'FAIL',
-        achieved: Boolean(macroTrend),
-        isApplicable: true,
-        triggerMoment: 'Pre-entry',
-        eligiblePool: 'All candidate setups',
-        scoreContribution: 0,
-        maxScore: 0,
-        confidenceText: 'Trend Continuation Core',
-        description: 'BUY_STOP in BULLISH; SELL_STOP in BEARISH',
-        detail: crossoverState ? `${trade.type} with ${crossoverState} crossover` : 'Pending crossover data',
-        actionText: 'Trend Follow',
+        confidenceText: '82.1% Win Rate (N=78/95)',
+        description: 'Trade Tue, Wed, Thu (10:00–12:30 IST); On Mondays or Week 1, trade Cash Equities (NSE_EQ) only',
+        detail: ule3Detail,
+        actionText: ule3Pass ? 'Authorize Calendar Timing' : 'Reject Calendar/Timing Constraint',
       });
 
       // -----------------------------------------------------------------------
@@ -1335,11 +1251,11 @@ export class EnhancedFilterService {
       });
 
       // -----------------------------------------------------------------------
-      // Phase 3: Adverse Recovery Hold (State 3: M1 Lost -> Awaiting M2)
+      // Phase 3: Adverse Recovery Hold (State 3: M1 Lost -> Awaiting M2 TP)
       // STRICT SCOPE: Only applies to positions that lost M1! If M1 is WON, State 3 Hold is NOT APPLICABLE!
       // In Cash Equities (NSE_EQ): Hold M2. In Futures (NSE_FO): 5-candle test.
       // -----------------------------------------------------------------------
-      // Rule UL-H1: Cash Equity (NSE_EQ) Absorption Hold
+      // Rule UL-H1: Cash Equity (NSE_EQ) Immunity Hold
       let ulh1Status: RuleStatus = 'NOT_APPLICABLE';
       let ulh1Detail = 'NOT APPLICABLE: Position won M1 directly; Hold Protocol exclusively applies to State 3 adverse losses.';
       let ulh1Action = 'N/A (Trade captured M1 Win)';
@@ -1347,7 +1263,7 @@ export class EnhancedFilterService {
       if (isM1Loss) {
         if (isNseEq) {
           ulh1Status = 'PASS';
-          ulh1Detail = `Active M1 loss in Cash Equities (NSE_EQ) ✓ HOLD position through median 42-min drawdown (2.5x–3.5x). 91.9% M2 TP recovery rate.`;
+          ulh1Detail = `Active M1 loss in Cash Equities (NSE_EQ) ✓ HOLD position through median 42-min drawdown (2.5x–3.5x). 91.9% M2 TP recovery rate (N=34/37).`;
           ulh1Action = 'HOLD position for M2 TP (Do NOT exit at SL)';
         } else {
           ulh1Status = 'NOT_APPLICABLE';
@@ -1358,7 +1274,7 @@ export class EnhancedFilterService {
 
       allRules.push({
         id: 'ul_h1_cash_equity_shield',
-        name: 'Ultra: Cash Equity (NSE_EQ) Absorption Hold (UL-H1)',
+        name: 'Ultra: Cash Equity (NSE_EQ) Immunity Hold (UL-H1)',
         phase: 'RECOVERY_HOLD',
         lifecycleState: 'State 3: Adverse Recovery Hold',
         status: ulh1Status,
@@ -1368,30 +1284,13 @@ export class EnhancedFilterService {
         eligiblePool: 'ONLY active M1-loss positions in Cash Equities (N = 37). N/A if M1 won or Futures',
         scoreContribution: 0,
         maxScore: 0,
-        confidenceText: '91.9% M2 TP Recovery Rate (N=34/37 reached M2 TP)',
+        confidenceText: '91.9% M2 TP Recovery Rate (N=34/37)',
         description: 'In NSE_EQ: HOLD position. Do not exit at SL; let cycle through 2.5x–3.5x drawdown to M2 TP',
         detail: ulh1Detail,
         actionText: ulh1Action,
       });
 
-      allRules.push({
-        id: 'ultra_segment_advantage',
-        name: 'Segment Advantage (Cash Equities)',
-        phase: 'RECOVERY_HOLD',
-        lifecycleState: 'State 3: Adverse Recovery Hold',
-        status: ulh1Status,
-        achieved: ulh1Status === 'PASS',
-        isApplicable: Boolean(isM1Loss && isNseEq),
-        triggerMoment: 'State 3 Recovery',
-        eligiblePool: 'Cash equities with M1 loss',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Cash segment recovery advantage',
-        detail: ulh1Detail,
-        actionText: ulh1Action,
-      });
-
-      // Rule UL-H2: Futures (NSE_FO) 5-Candle Invalidation Test
+      // Rule UL-H2: Futures (NSE_FO) 5-Candle Dynamic Test
       let ulh2Status: RuleStatus = 'NOT_APPLICABLE';
       let ulh2Detail = 'NOT APPLICABLE: Position won M1 directly; Hold Protocol exclusively applies to State 3 adverse losses.';
       let ulh2Action = 'N/A (Trade captured M1 Win)';
@@ -1399,22 +1298,30 @@ export class EnhancedFilterService {
       if (isM1Loss) {
         if (isNseFo) {
           const recrossed = drawdown.entryCrossCount >= 1 && drawdown.maxLossMultiple <= 3.5;
-          const killCondition = drawdown.entryCrossCount === 0 || drawdown.maxLossMultiple > 3.5;
-          ulh2Status = recrossed ? 'PASS' : 'FAIL';
-          ulh2Detail = recrossed
-            ? `Price recrossed entry ${drawdown.entryCrossCount}x with loss ${drawdown.maxLossMultiple.toFixed(2)}x <= 3.5x ✓ 84.6% M2 TP recovery`
-            : `0 entry recrosses after SL or loss expanded past 3.5x (${drawdown.maxLossMultiple.toFixed(2)}x) ✗`;
-          ulh2Action = recrossed ? 'HOLD for M2 TP' : 'MARKET CLOSE IMMEDIATELY (Cut non-recovering trap)';
+          const hardKill = drawdown.entryCrossCount === 0 && drawdown.maxLossMultiple > 3.0;
+          if (hardKill) {
+            ulh2Status = 'FAIL';
+            ulh2Detail = `🚨 HARD KILL TRIGGERED: 0 entry recrosses after SL and adverse loss exceeded > 3.0x (${drawdown.maxLossMultiple.toFixed(2)}x). Cut immediately at market (avoids 100% of 5x–15x runaway trends).`;
+            ulh2Action = 'HARD KILL POSITION AT MARKET';
+          } else if (recrossed) {
+            ulh2Status = 'PASS';
+            ulh2Detail = `Price recrossed entry ${drawdown.entryCrossCount}x with loss ${drawdown.maxLossMultiple.toFixed(2)}x <= 3.5x ✓ 84.6% M2 TP recovery (N=22/26).`;
+            ulh2Action = 'HOLD for M2 TP recovery';
+          } else {
+            ulh2Status = 'PASS';
+            ulh2Detail = `At Candle 5: Loss is ${drawdown.maxLossMultiple.toFixed(2)}x. Monitoring for entry recross.`;
+            ulh2Action = 'Monitor Candle 5 Invalidation Test';
+          }
         } else {
           ulh2Status = 'NOT_APPLICABLE';
-          ulh2Detail = 'NOT APPLICABLE: Trade is in Cash Equities (NSE_EQ). Cash Equity Shield (UL-H1) applies.';
+          ulh2Detail = 'NOT APPLICABLE: Trade is in Cash Equities (NSE_EQ). Cash Equity Immunity Hold (UL-H1) applies.';
           ulh2Action = 'Apply Cash Equity Shield';
         }
       }
 
       allRules.push({
         id: 'ul_h2_futures_5candle_test',
-        name: 'Ultra: Futures (NSE_FO) 5-Candle Invalidation Test (UL-H2)',
+        name: 'Ultra: Futures (NSE_FO) 5-Candle Dynamic Test (UL-H2)',
         phase: 'RECOVERY_HOLD',
         lifecycleState: 'State 3: Adverse Recovery Hold',
         status: ulh2Status,
@@ -1425,7 +1332,7 @@ export class EnhancedFilterService {
         scoreContribution: 0,
         maxScore: 0,
         confidenceText: '84.6% M2 TP Recovery on Hold (N=22/26); Eliminates 87.5% Runaway Losses',
-        description: 'Track 5 candles post-SL: HOLD if recrosses entry (crossings >= 1) & loss <= 3.5x; KILL if 0 crosses or loss > 3.5x',
+        description: 'At Candle 5 post-SL: HOLD if recrosses entry (crossings >= 1) & loss <= 3.5x; KILL if 0 crosses past > 3.0x loss',
         detail: ulh2Detail,
         actionText: ulh2Action,
       });
@@ -1447,7 +1354,7 @@ export class EnhancedFilterService {
         eligiblePool: 'All winning ULTRA trades',
         scoreContribution: 0,
         maxScore: 0,
-        confidenceText: 'Primary Exit at TP',
+        confidenceText: 'Primary Exit at TP (1.5x–2.5x)',
         description: 'Limit exit at TP (1.5x to 2.5x)',
         detail: ulx1Achieved
           ? `M1 TP achieved in ${milestone1?.timeTakenFormatted} (${milestone1?.ticks.toFixed(1)} ticks) ✓ Full Win`
@@ -1455,23 +1362,6 @@ export class EnhancedFilterService {
           ? 'M1 hit SL barrier (See State 3 Hold Protocol)'
           : 'Awaiting M1 target',
         actionText: ulx1Achieved ? 'Bank TP Profit at Limit' : 'Awaiting TP Target',
-      });
-
-      allRules.push({
-        id: 'ul_x1_target_capture',
-        name: 'Ultra: Target Capture',
-        phase: 'FINAL_EXIT',
-        lifecycleState: 'State 4A: Target Lock',
-        status: ulx1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
-        achieved: ulx1Achieved,
-        isApplicable: Boolean(milestone1),
-        triggerMoment: 'State 4A Target Lock',
-        eligiblePool: 'Winning trades',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'Target capture',
-        detail: ulx1Achieved ? 'Pass' : 'Fail',
-        actionText: 'Bank TP',
       });
 
       // Rule UL-X2: EOD Time Stop (14:15 IST)
@@ -1496,29 +1386,12 @@ export class EnhancedFilterService {
         actionText: eodTriggered ? 'HARD CLOSE AT MARKET (EOD)' : 'Position Active',
       });
 
-      allRules.push({
-        id: 'ul_x2_eod_expiry',
-        name: 'Ultra: EOD Time Expiry',
-        phase: 'FINAL_EXIT',
-        lifecycleState: 'State 4B: Final Resolution',
-        status: eodTriggered ? 'FAIL' : 'PASS',
-        achieved: !eodTriggered,
-        isApplicable: true,
-        triggerMoment: 'State 4B Resolution',
-        eligiblePool: 'Open positions',
-        scoreContribution: 0,
-        maxScore: 0,
-        description: 'EOD time stop',
-        detail: !eodTriggered ? 'Pass' : 'Fail',
-        actionText: 'Close open intraday at 14:15',
-      });
-
       // -----------------------------------------------------------------------
       // Combinations & Inversions for ULTRA
       // -----------------------------------------------------------------------
       // Combination 2: ULTRA Institutional Cash Sweep (92.7% Win Rate)
-      // Pre-Entry + Hold: NSE_EQ + Threshold Confluence >= 2 + prior_candles <= 12
-      const comboUltraCashSweep = isNseEq && hasMultiTier && crossoverAge <= 12;
+      // NSE_EQ + prior_candles <= 8 + Threshold Gap <= 5 pts + status == completed
+      const comboUltraCashSweep = isNseEq && crossoverAge <= 8 && hasThresholdCompressionGap && isCompleted && !isCancelled;
       allRules.push({
         id: 'combo_ultra_cash_sweep_92',
         name: '2. ULTRA Institutional Cash Sweep (92.7% Win Rate)',
@@ -1532,7 +1405,7 @@ export class EnhancedFilterService {
         scoreContribution: 0,
         maxScore: 0,
         confidenceText: '92.7% Win Rate (N=38/41)',
-        description: 'NSE_EQ + Threshold Confluence >= 2 tiers + prior_candles <= 12',
+        description: 'NSE_EQ + prior_candles <= 8 + Threshold Gap <= 5 pts + status == completed',
         detail: comboUltraCashSweep
           ? '💎 ULTRA CASH EQUITY SWEEP CONFLUENCE ACHIEVED (92.7% Win Rate)'
           : 'Did not meet all Cash Equity Sweep conditions',
@@ -1546,53 +1419,17 @@ export class EnhancedFilterService {
           winRate: 92.7,
           engine: 'ULTRA',
           badgeLabel: '92.7% CASH SWEEP',
-          description: 'NSE_EQ + Threshold Confluence >= 2 tiers + prior_candles <= 12',
+          description: 'NSE_EQ + prior_candles <= 8 + Threshold Gap <= 5 pts + status == completed',
           phaseTarget: 'Pre-Entry + Hold (State 0 + 3)',
         });
       }
 
-      // Combination 3: ULTRA Fresh Wave Momentum (91.4% Direct M1 Win Rate)
-      // State 0 Pre-Entry: prior_candles <= 6 + Threshold Confluence >= 2 tiers + Time 10:00–12:30 IST
-      const inWindow1230 = totalMinutes >= 600 && totalMinutes <= 750;
-      const comboUltraFreshWave = crossoverAge >= 1 && crossoverAge <= 6 && hasMultiTier && inWindow1230;
-      allRules.push({
-        id: 'combo_ultra_fresh_wave_91',
-        name: '3. ULTRA Fresh Wave Momentum (91.4% Direct M1)',
-        phase: 'COMBINATION',
-        lifecycleState: 'State 0: Pre-Entry',
-        status: comboUltraFreshWave ? 'PASS' : 'FAIL',
-        achieved: comboUltraFreshWave,
-        isApplicable: true,
-        triggerMoment: 'Fresh ignition order placement',
-        eligiblePool: '35 qualifying fresh setups',
-        scoreContribution: 0,
-        maxScore: 0,
-        confidenceText: '91.4% Direct M1 Win Rate (N=32/35)',
-        description: 'prior_candles <= 6 + Threshold Confluence >= 2 tiers + Time 10:00–12:30 IST',
-        detail: comboUltraFreshWave
-          ? '⚡ ULTRA FRESH WAVE MOMENTUM IGNITION (91.4% Direct M1 Win Rate)'
-          : 'Did not meet all Fresh Wave Momentum criteria',
-        actionText: comboUltraFreshWave ? 'Authorize High-Conviction Breakout' : 'Standard Sizing',
-      });
-
-      if (comboUltraFreshWave) {
-        highConfluenceCombinations.push({
-          id: 'combo_ultra_fresh_wave_91',
-          name: 'ULTRA Fresh Wave Momentum',
-          winRate: 91.4,
-          engine: 'ULTRA',
-          badgeLabel: '91.4% FRESH WAVE',
-          description: 'prior_candles <= 6 + Threshold Confluence >= 2 tiers + Time 10:00–12:30 IST',
-          phaseTarget: 'Pre-Entry (State 0)',
-        });
-      }
-
-      // Combination 4: ULTRA Cash Equity Recovery Well (91.9% Recovery Rate)
-      // State 3 Recovery: M1 Hit == SL + NSE_EQ + loss_before_return <= 3.5x
+      // Combination 3: ULTRA Cash Equity M1 Recovery (91.9% Recovery Rate)
+      // M1 Hit == SL + Instrument == NSE_EQ + loss_multiple_before_return <= 3.5x
       const comboUltraEqRecovery = Boolean(isM1Loss && isNseEq && drawdown.lossMultipleBeforeEntryReturn <= 3.5);
       allRules.push({
         id: 'combo_ultra_eq_recovery_91',
-        name: '4. ULTRA Cash Equity M1 Recovery Well (91.9%)',
+        name: '3. ULTRA Cash Equity M1 Recovery (91.9% Recovery Rate)',
         phase: 'COMBINATION',
         lifecycleState: 'State 3: Adverse Recovery Hold',
         status: isM1Loss && isNseEq ? (comboUltraEqRecovery ? 'PASS' : 'FAIL') : 'NOT_APPLICABLE',
@@ -1602,8 +1439,8 @@ export class EnhancedFilterService {
         eligiblePool: '37 losing cash setups',
         scoreContribution: 0,
         maxScore: 0,
-        confidenceText: '91.9% M2 Recovery Rate (N=34/37)',
-        description: 'M1 Hit == SL + NSE_EQ + loss_before_return <= 3.5x',
+        confidenceText: '91.9% Recovery (N=34/37)',
+        description: 'M1 Hit == SL + Instrument == NSE_EQ + loss_multiple_before_return <= 3.5x',
         detail: isM1Loss && isNseEq
           ? comboUltraEqRecovery
             ? '🛡️ ULTRA CASH EQUITY RECOVERY WELL ACTIVE (91.9% M2 TP Recovery Rate)'
@@ -1615,21 +1452,21 @@ export class EnhancedFilterService {
       if (comboUltraEqRecovery) {
         highConfluenceCombinations.push({
           id: 'combo_ultra_eq_recovery_91',
-          name: 'ULTRA Cash Equity Recovery Well',
+          name: 'ULTRA Cash Equity M1 Recovery',
           winRate: 91.9,
           engine: 'ULTRA',
           badgeLabel: '91.9% EQ M2 RECOVERY',
-          description: 'M1 Hit == SL + NSE_EQ + loss_before_return <= 3.5x',
+          description: 'M1 Hit == SL + Instrument == NSE_EQ + loss_multiple_before_return <= 3.5x',
           phaseTarget: 'State 3 (Recovery)',
         });
       }
 
-      // Inversion Strategy 5: Late Futures Climax Fade (Inversion, 92.3% Win Rate)
-      // State 0 Opposite: Fading cancelled orders in NSE_FO where prior_candles >= 20 (Target = Original SL)
-      const isClimaxFadeCandidate = isNseFo && crossoverAge >= 20 && isDetached;
+      // Inversion Strategy 4: The Cancelled ULTRA Inversion Fade (92.3% Win Rate)
+      // Fading is_cancelled == YES in NSE_FO where prior_candles >= 20 (Target = Original SL)
+      const isClimaxFadeCandidate = isNseFo && isCancelled && crossoverAge >= 20;
       allRules.push({
         id: 'combo_ultra_fade_inversion_92',
-        name: '5. Late Futures Climax Fade Inversion (92.3%)',
+        name: '4. The Cancelled ULTRA Inversion Fade (92.3% Win Rate)',
         phase: 'INVERSION',
         lifecycleState: 'State 0: Opposite Entry',
         status: isClimaxFadeCandidate ? 'PASS' : 'NOT_APPLICABLE',
@@ -1642,7 +1479,7 @@ export class EnhancedFilterService {
         confidenceText: '92.3% Fade Win Rate (N=24/26)',
         description: 'Fading cancelled orders in NSE_FO where prior_candles >= 20 (Target = Original SL)',
         detail: isClimaxFadeCandidate
-          ? `⚡ INVERSION SIGNAL TRIGGERED: Late futures climax trap (Age: ${crossoverAge}b). FADE opposite direction @ Entry -> Target SL!`
+          ? `⚡ INVERSION SIGNAL TRIGGERED: Cancelled mature futures trap (Age: ${crossoverAge}b >= 20). FADE opposite direction @ Entry -> Target SL!`
           : 'Normal breakout setup (No climax fade triggered)',
         actionText: isClimaxFadeCandidate ? `Enter Opposite ${isBuy ? 'SHORT' : 'LONG'} @ Entry -> Target SL` : 'Standard Execution',
       });
@@ -1659,7 +1496,7 @@ export class EnhancedFilterService {
           originalSL: trade.tp, // Inverted stop is original TP
           winRate: 92.3,
           title: `92.3% Fade Inversion: ${invertedDir} @ ${trade.entry.toFixed(2)}`,
-          rationale: `Fading mature futures breakout trap (Age: ${crossoverAge}b >= 20 detached from MAs). 92.3% verified snapback to stop loss level ${trade.sl.toFixed(2)}.`,
+          rationale: `Fading cancelled mature futures breakout trap (Age: ${crossoverAge}b >= 20, is_cancelled == YES). 92.3% verified snapback to stop loss level ${trade.sl.toFixed(2)}.`,
         };
       }
 
@@ -1672,8 +1509,8 @@ export class EnhancedFilterService {
         } else {
           if (drawdown.entryCrossCount >= 1 && drawdown.maxLossMultiple <= 3.5) {
             holdAdvice = `✓ STATE 3 FUTURES RECOVERY ACTIVE: Price recrossed entry ${drawdown.entryCrossCount}x. Ride to M2 TP!`;
-          } else if (drawdown.entryCrossCount === 0 || drawdown.maxLossMultiple > 3.5) {
-            holdAdvice = '🚨 STATE 3 FUTURES KILL TRIGGER: 0 entry recrosses or loss expanded past 3.5x! Cut at market immediately.';
+          } else if (drawdown.entryCrossCount === 0 && drawdown.maxLossMultiple > 3.0) {
+            holdAdvice = '🚨 STATE 3 FUTURES KILL TRIGGER: 0 entry recrosses and loss > 3.0x! Cut at market immediately.';
           } else {
             holdAdvice = '⏳ STATE 3 FUTURES 5-CANDLE WATCH: Monitoring next 5 candles for entry recross.';
           }
@@ -1708,9 +1545,9 @@ export class EnhancedFilterService {
         inversionSignal,
         lifecycleAdvice: {
           lifecycleState,
-          entryVerdict: isAntiClimaxTrap ? 'REJECT' : preEntryScore >= 70 ? 'PASS' : preEntryScore >= 40 ? 'WARN' : 'REJECT',
-          entryReason: isAntiClimaxTrap
-            ? 'REJECT: Anti-climax mature trap (prior_candles >= 20 and detached from MAs). Trigger Fade Inversion.'
+          entryVerdict: isClimaxFadeCandidate ? 'REJECT' : preEntryScore >= 70 ? 'PASS' : preEntryScore >= 40 ? 'WARN' : 'REJECT',
+          entryReason: isClimaxFadeCandidate
+            ? 'REJECT: Cancelled mature trap (prior_candles >= 20, is_cancelled == YES). Trigger Fade Inversion.'
             : ule1Pass
             ? 'Fresh wave ignition with aligned moving averages confirmed.'
             : 'Moderate trend setup.',
@@ -1735,10 +1572,10 @@ export class EnhancedFilterService {
           maxHoldWin: '90 minutes (or 14:15 IST EOD Close)',
           optimalHoldLoss: isNseEq
             ? 'Hold through median 42-min drawdown (2.5x–3.5x) for 91.9% M2 recovery'
-            : 'Track 5 candles: exit if 0 recrosses or loss > 3.5x',
+            : 'Track 5 candles: exit if 0 recrosses past 3.0x loss',
           targetProfitMultiple: 'Book at 1.5x to 2.5x',
-          maxDrawdownAllowed: isNseEq ? '3.5x (Cash Equity Absorption Hold)' : '3.5x (Futures 5-Candle Test)',
-          primaryCloseIndicator: 'M1 TP Hit (Primary Win) OR 14:15 IST EOD Stop OR (NSE_FO: 0 entry crosses & loss > 3.5x)',
+          maxDrawdownAllowed: isNseEq ? '3.5x (Cash Equity Immunity Hold)' : '3.5x (Futures 5-Candle Test)',
+          primaryCloseIndicator: 'M1 TP Hit (Primary Win) OR 14:15 IST EOD Stop OR (NSE_FO: 0 entry crosses & loss > 3.0x)',
           lossManagementRule:
             'State 3 Hold Protocol: In NSE_EQ, HOLD (91.9% recover to M2 TP). In NSE_FO, wait 5 candles: if entry_cross_count >= 1, HOLD for TP; if entry_cross_count == 0 past 3.0x loss, CUT AT MARKET.',
           liveStatusAdvice: holdAdvice,
@@ -1785,23 +1622,6 @@ export class EnhancedFilterService {
       actionText: me1Pass ? 'Authorize Kinetic Execution' : 'Reject Sub-Optimal Setup',
     });
 
-    allRules.push({
-      id: 'meta_micro_momentum',
-      name: 'Micro-Momentum Alignment',
-      phase: 'PRE_ENTRY',
-      lifecycleState: 'State 0: Pre-Entry',
-      status: me1Pass ? 'PASS' : 'FAIL',
-      achieved: me1Pass,
-      isApplicable: true,
-      triggerMoment: 'State 0 Pre-Entry',
-      eligiblePool: 'Candidate signals',
-      scoreContribution: 0,
-      maxScore: 0,
-      description: 'Micro-momentum',
-      detail: me1Pass ? 'Pass' : 'Fail',
-      actionText: 'Authorize',
-    });
-
     // Rule M-E2: Segment Priority (Cash Equities NSE_EQ)
     allRules.push({
       id: 'm_e2_segment_priority',
@@ -1821,29 +1641,12 @@ export class EnhancedFilterService {
       actionText: isNseEq ? 'Priority Cash Allocation' : 'Secondary Derivative Allocation',
     });
 
-    allRules.push({
-      id: 'meta_instrument_class',
-      name: 'Instrument Class',
-      phase: 'PRE_ENTRY',
-      lifecycleState: 'State 0: Pre-Entry',
-      status: isNseEq ? 'PASS' : 'FAIL',
-      achieved: isNseEq,
-      isApplicable: true,
-      triggerMoment: 'State 0 Pre-Entry',
-      eligiblePool: 'Candidate signals',
-      scoreContribution: 0,
-      maxScore: 0,
-      description: 'Cash equities',
-      detail: isNseEq ? 'Pass' : 'Fail',
-      actionText: 'Authorize',
-    });
-
     // Rule M-E3: Imminent Crossover State (<= 10 bars)
     const crossoverEnded = entryIndicators?.crossoverEndedInCandles;
     const imminentCrossover = crossoverEnded !== null && crossoverEnded !== undefined && crossoverEnded <= 10;
     allRules.push({
-      id: 'meta_imminent_crossover',
-      name: 'Meta: Imminent Crossover State (≤ 10 bars)',
+      id: 'm_e3_imminent_crossover',
+      name: 'Meta: Imminent Crossover State (M-E3, ≤ 10 bars)',
       phase: 'PRE_ENTRY',
       lifecycleState: 'State 0: Pre-Entry',
       status: imminentCrossover ? 'PASS' : 'FAIL',
@@ -1920,23 +1723,6 @@ export class EnhancedFilterService {
       actionText: mh1Action,
     });
 
-    allRules.push({
-      id: 'm_h1_zero_tolerance_stop',
-      name: 'Meta: Zero Tolerance Stop',
-      phase: 'RECOVERY_HOLD',
-      lifecycleState: 'State 3: Adverse Recovery Hold',
-      status: mh1Status,
-      achieved: false,
-      isApplicable: isM1Loss,
-      triggerMoment: 'State 3 Recovery',
-      eligiblePool: 'Losing META positions',
-      scoreContribution: 0,
-      maxScore: 0,
-      description: 'Zero tolerance stop',
-      detail: mh1Detail,
-      actionText: mh1Action,
-    });
-
     // -------------------------------------------------------------------------
     // Phase 4: Final Exit (State 4)
     // -------------------------------------------------------------------------
@@ -1963,40 +1749,6 @@ export class EnhancedFilterService {
         ? 'M1 hit SL barrier (Zero tolerance cut active)'
         : 'Awaiting M1 target',
       actionText: mx1Achieved ? 'Lock Trailing Stop at +1.5x Profit' : 'Awaiting TP Fill',
-    });
-
-    allRules.push({
-      id: 'm_h2_dynamic_winner_trailing',
-      name: 'Meta: Dynamic Winner Trailing',
-      phase: 'FINAL_EXIT',
-      lifecycleState: 'State 4A: Target Lock',
-      status: mx1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
-      achieved: mx1Achieved,
-      isApplicable: Boolean(milestone1),
-      triggerMoment: 'State 4A Target Lock',
-      eligiblePool: 'Winning trades',
-      scoreContribution: 0,
-      maxScore: 0,
-      description: 'Dynamic trailing',
-      detail: mx1Achieved ? 'Pass' : 'Fail',
-      actionText: 'Trail at +1.5x',
-    });
-
-    allRules.push({
-      id: 'm_x1_trailing_runner_capture',
-      name: 'Meta: Runner Capture',
-      phase: 'FINAL_EXIT',
-      lifecycleState: 'State 4A: Target Lock',
-      status: mx1Achieved ? 'PASS' : milestone1 ? 'FAIL' : 'NOT_APPLICABLE',
-      achieved: mx1Achieved,
-      isApplicable: Boolean(milestone1),
-      triggerMoment: 'State 4A Target Lock',
-      eligiblePool: 'Winning trades',
-      scoreContribution: 0,
-      maxScore: 0,
-      description: 'Runner capture',
-      detail: mx1Achieved ? 'Pass' : 'Fail',
-      actionText: 'Capture runners',
     });
 
     let metaInFlightAdvice = 'Fast momentum tracking: resolve within 6 candles.';
@@ -2121,7 +1873,7 @@ export class EnhancedFilterService {
 
     // Combination metrics
     const uberSuperSetTrades = evaluated.filter((e) =>
-      e.enhanced.highConfluenceCombinations.some((c) => c.id === 'combo_uber_superset_93')
+      e.enhanced.highConfluenceCombinations.some((c) => c.id === 'combo_uber_expiry_cycle_93' || c.id === 'combo_uber_superset_93')
     );
     const uberSuperSetWins = uberSuperSetTrades.filter((e) => e.analysis.isSuccess).length;
     const uberSuperSetWinRate = uberSuperSetTrades.length > 0
@@ -2137,7 +1889,7 @@ export class EnhancedFilterService {
       : 0;
 
     const ultraFreshWaveTrades = evaluated.filter((e) =>
-      e.enhanced.highConfluenceCombinations.some((c) => c.id === 'combo_ultra_fresh_wave_91')
+      e.enhanced.highConfluenceCombinations.some((c) => c.id === 'combo_ultra_fresh_wave_91' || c.id === 'combo_ultra_cash_sweep_92')
     );
     const ultraFreshWaveWins = ultraFreshWaveTrades.filter((e) => e.analysis.isSuccess).length;
     const ultraFreshWaveWinRate = ultraFreshWaveTrades.length > 0
@@ -2152,7 +1904,10 @@ export class EnhancedFilterService {
       ? parseFloat(((ultraEqRecoveryWins / ultraEqRecoveryTrades.length) * 100).toFixed(1))
       : 0;
 
-    const fadeInversionTrades = evaluated.filter((e) => Boolean(e.enhanced.inversionSignal?.shouldInvert));
+    const fadeInversionTrades = evaluated.filter((e) =>
+      Boolean(e.enhanced.inversionSignal?.shouldInvert) ||
+      e.enhanced.highConfluenceCombinations.some((c) => c.id === 'combo_ultra_fade_inversion_92')
+    );
 
     // Per Engine calculations
     const calcEngine = (type: 'UBER' | 'META' | 'ULTRA') => {
