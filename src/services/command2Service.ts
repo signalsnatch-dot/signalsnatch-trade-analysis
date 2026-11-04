@@ -1541,20 +1541,17 @@ export class Command2Service {
   }
 
   /**
-   * Evaluate a single chunk/batch of trade signals in memory using cached candles
+   * Evaluate a single chunk/batch of trade signals in parallel using cached candles
    */
   async evaluateTradesBatch(
     tradesBatch: TradeSignal[],
     options?: Command2Options
   ): Promise<TradeMilestoneAnalysis[]> {
-    const results: TradeMilestoneAnalysis[] = [];
     const skipCache = options?.skipCache || options?.isLive;
-    for (const trade of tradesBatch) {
-      if (!trade) continue;
-      const analysis = await this.evaluateTrade(trade, { skipCache });
-      results.push(analysis);
-    }
-    return results;
+    const validBatch = tradesBatch.filter(Boolean);
+    return await Promise.all(
+      validBatch.map((trade) => this.evaluateTrade(trade, { skipCache }))
+    );
   }
 
   /**
@@ -1589,33 +1586,30 @@ export class Command2Service {
     const rawAnalyses: TradeMilestoneAnalysis[] = [];
     const total = filteredTrades.length;
 
-    const BATCH_SIZE = 10;
+    const BATCH_SIZE = 15;
     const startTimeMs = Date.now();
     console.log(`\n==================================================`);
-    console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in batches of ${BATCH_SIZE}...`);
+    console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in parallel batches of ${BATCH_SIZE}...`);
     console.log(`==================================================`);
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       const batch = filteredTrades.slice(i, i + BATCH_SIZE);
 
-      for (let j = 0; j < batch.length; j++) {
-        const trade = batch[j];
-        const globalIdx = i + j;
+      const batchAnalyses = await Promise.all(
+        batch.map((trade) => this.evaluateTrade(trade, { skipCache }))
+      );
+      rawAnalyses.push(...batchAnalyses);
 
-        onProgress?.({
-          currentIndex: globalIdx + 1,
-          totalTrades: total,
-          currentTradeName: trade.name,
-          currentVersion: trade.version,
-          message: `Analyzing trade ${globalIdx + 1}/${total}: ${trade.name} (${trade.version})...`,
-        });
-
-        const analysis = await this.evaluateTrade(trade, { skipCache });
-        rawAnalyses.push(analysis);
-      }
+      onProgress?.({
+        currentIndex: Math.min(i + BATCH_SIZE, total),
+        totalTrades: total,
+        currentTradeName: batch[0]?.name || '',
+        currentVersion: batch[0]?.version || '',
+        message: `Analyzed ${Math.min(i + BATCH_SIZE, total)}/${total} trades...`,
+      });
 
       // Non-blocking yield to event loop after each batch
-      await new Promise((resolve) => setTimeout(resolve, 15));
+      await new Promise((resolve) => setTimeout(resolve, 5));
 
       const elapsedSec = ((Date.now() - startTimeMs) / 1000).toFixed(2);
       const heapRamMb = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
