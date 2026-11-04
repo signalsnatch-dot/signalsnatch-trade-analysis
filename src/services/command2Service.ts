@@ -296,6 +296,67 @@ export class Command2Service {
   }
 
   /**
+   * Helper to aggregate daily candles directly from local CSV files in ./market_data/{date}/
+   * Instant (0.1ms) response that avoids network calls to Upstox API
+   */
+  private getDailyCandlesFromLocalCsvs(instrumentKey: string, fromDate: string, toDate: string): Candle[] {
+    if (typeof window !== 'undefined' || !fs || !fs.existsSync) return [];
+
+    const safeName = Command1Service.safeFilename(instrumentKey);
+    const altSafeName = instrumentKey.replace(/\|/g, '_');
+    const result: Candle[] = [];
+
+    const startMs = new Date(fromDate).getTime();
+    const endMs = new Date(toDate).getTime();
+
+    try {
+      if (!fs.existsSync(this.marketDataDir)) return [];
+      const dateDirs = fs.readdirSync(this.marketDataDir).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+
+      for (const dateStr of dateDirs) {
+        const dMs = new Date(dateStr).getTime();
+        if (dMs >= startMs && dMs <= endMs) {
+          const csvPath = `${this.marketDataDir}/${dateStr}/${safeName}.csv`;
+          const altCsvPath = `${this.marketDataDir}/${dateStr}/${altSafeName}.csv`;
+          const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
+
+          if (pathToCheck) {
+            const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
+            if (candles && candles.length > 0) {
+              const open = candles[0].open;
+              let high = candles[0].high;
+              let low = candles[0].low;
+              const close = candles[candles.length - 1].close;
+              let volume = 0;
+
+              for (const c of candles) {
+                if (c.high > high) high = c.high;
+                if (c.low < low) low = c.low;
+                volume += c.volume;
+              }
+
+              result.push({
+                timestamp: candles[0].timestamp,
+                timeMs: candles[0].timeMs,
+                open,
+                high,
+                low,
+                close,
+                volume,
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore disk errors
+    }
+
+    result.sort((a, b) => a.timeMs - b.timeMs);
+    return result;
+  }
+
+  /**
    * Cached multi-day daily candles range
    */
   async fetchDailyCandlesCached(instrument: string, fromDate: string, toDate: string): Promise<Candle[]> {
@@ -303,6 +364,15 @@ export class Command2Service {
     if (Command2Service.dailyCandleMemoryCache.has(key)) {
       return Command2Service.dailyCandleMemoryCache.get(key)!;
     }
+
+    // 1. Try local CSV disk aggregation first (instant < 0.1ms response)
+    const localDaily = this.getDailyCandlesFromLocalCsvs(instrument, fromDate, toDate);
+    if (localDaily.length > 0) {
+      Command2Service.dailyCandleMemoryCache.set(key, localDaily);
+      return localDaily;
+    }
+
+    // 2. Fallback to API if local data is unavailable
     try {
       const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
       const safe = res || [];

@@ -228,7 +228,7 @@ export class UpstoxApiService {
     const encodedKey = encodeURIComponent(instrumentKey);
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/day/${toDate}/${fromDate}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 1500 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles)) {
         const candles: Candle[] = res.data.data.candles.map((arr: (string | number)[]) => {
           const timeIso = String(arr[0]);
@@ -249,7 +249,7 @@ export class UpstoxApiService {
     } catch {
       try {
         const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/day/${toDate}`;
-        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
+        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 1500 });
         if (res.data?.data?.candles && Array.isArray(res.data.data.candles)) {
           const candles: Candle[] = res.data.data.candles.map((arr: (string | number)[]) => {
             const timeIso = String(arr[0]);

@@ -143,50 +143,58 @@ export default function App() {
         totalTrades: filteredTrades.length,
       });
 
-      for (let b = 0; b < totalBatches; b++) {
-        const chunk = filteredTrades.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+      const CONCURRENT_BATCHES = 3;
+      for (let i = 0; i < totalBatches; i += CONCURRENT_BATCHES) {
+        const batchIndices = Array.from({ length: Math.min(CONCURRENT_BATCHES, totalBatches - i) }, (_, idx) => i + idx);
 
-        const res = await fetch('/api/command2/run-batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tradesChunk: chunk,
-            batchIndex: b,
-            totalBatches,
-            versionFilters: options.versionFilters,
-            useAllVersions: options.useAllVersions,
-            volumeTradesOnly: options.volumeTradesOnly !== false,
-          }),
+        await Promise.all(
+          batchIndices.map(async (b) => {
+            const chunk = filteredTrades.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+
+            try {
+              const res = await fetch('/api/command2/run-batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  tradesChunk: chunk,
+                  batchIndex: b,
+                  totalBatches,
+                  versionFilters: options.versionFilters,
+                  useAllVersions: options.useAllVersions,
+                  volumeTradesOnly: options.volumeTradesOnly !== false,
+                }),
+              });
+
+              const data = await res.json();
+              if (Array.isArray(data.evaluatedAnalyses)) {
+                accumulatedAnalyses.push(...data.evaluatedAnalyses);
+              }
+            } catch (err) {
+              console.error(`Error evaluating batch ${b + 1}:`, err);
+            }
+          })
+        );
+
+        const activeFiltersApplied = options.versionFilters.length > 0
+          ? `Versions: ${options.versionFilters.join(', ')}`
+          : `Default (Ultra, Uber)`;
+
+        const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
+        const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+
+        setCmd2Result({
+          analyses: [...accumulatedAnalyses],
+          incompleteTrades: [],
+          groups5Min,
+          summary,
         });
 
-        const data = await res.json();
-        if (Array.isArray(data.evaluatedAnalyses)) {
-          accumulatedAnalyses.push(...data.evaluatedAnalyses);
-
-          // Update full result state periodically (every 5 batches or on the last batch) to keep UI responsive
-          if (b % 5 === 0 || b === totalBatches - 1) {
-            const activeFiltersApplied = options.versionFilters.length > 0
-              ? `Versions: ${options.versionFilters.join(', ')}`
-              : `Default (Ultra, Uber)`;
-
-            const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
-            const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
-
-            setCmd2Result({
-              analyses: [...accumulatedAnalyses],
-              incompleteTrades: [],
-              groups5Min,
-              summary,
-            });
-          }
-
-          setCmd2Progress({
-            currentBatch: b + 1,
-            totalBatches,
-            processedTrades: accumulatedAnalyses.length,
-            totalTrades: filteredTrades.length,
-          });
-        }
+        setCmd2Progress({
+          currentBatch: Math.min(i + CONCURRENT_BATCHES, totalBatches),
+          totalBatches,
+          processedTrades: accumulatedAnalyses.length,
+          totalTrades: filteredTrades.length,
+        });
       }
     } catch (err) {
       console.error('Error running Command 2 in batches:', err);
