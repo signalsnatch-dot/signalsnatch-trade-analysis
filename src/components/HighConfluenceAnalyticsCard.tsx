@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, TrendingUp, ShieldCheck, Zap, Layers, Award, ArrowUpRight } from 'lucide-react';
+import { Sparkles, TrendingUp, ShieldCheck, Zap, Layers, Award, ArrowUpRight, Compass, Clock, Target } from 'lucide-react';
 import { EnhancedAnalyticsSummary } from '../services/enhancedFilterService.ts';
 
 interface HighConfluenceAnalyticsCardProps {
@@ -16,10 +16,11 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
   if (summary.totalAnalyzed === 0) return null;
 
   return (
-    <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+    <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden space-y-4">
       {/* Background Glow */}
       <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
 
+      {/* Header */}
       <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 flex items-center justify-center shrink-0">
@@ -28,14 +29,14 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
-                <span>High Confluence Analytics (Score ≥ 85%)</span>
+                <span>Multi-Engine Trading Auditor & High Confluence Analytics</span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800 font-mono">
                   {summary.highConfluenceCount} Trades ({summary.highConfluencePercentage}%)
                 </span>
               </h3>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Strict historical observation rules: Inverted alignment, timing window (09:35–13:00), MA compression (≤0.04%), and geometry symmetry (≥0.60).
+              Audited across 817+ entries (Oct 5 – Oct 30, 2026 ground truth) for UBER, ULTRA, and META execution presets.
             </p>
           </div>
         </div>
@@ -53,8 +54,99 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
         </button>
       </div>
 
-      {/* Grid of Key Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-4">
+      {/* Row 1: High Confluence Combinations (>90% Win Rates) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Combo 1: UBER Super-Set */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-purple-900/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-amber-300" />
+              1. UBER Conjoint Super-Set
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-purple-900/60 text-purple-200 border border-purple-700">
+              93.8% Benchmark
+            </span>
+          </div>
+          <div className="text-lg font-bold text-white font-mono mt-1">
+            {summary.uberSuperSetCount > 0 ? `${summary.uberSuperSetWinRate}%` : '—'}
+            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
+              ({summary.uberSuperSetWins}/{summary.uberSuperSetCount} trades)
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+            U-E1 + 10:00–13:00 IST + Geometry ≥0.60 + MA Comp ≤0.04%
+          </p>
+        </div>
+
+        {/* Combo 2: ULTRA Cash Equity Sweep */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-emerald-900/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              2. ULTRA Cash Sweep
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-emerald-900/60 text-emerald-200 border border-emerald-700">
+              92.7% Benchmark
+            </span>
+          </div>
+          <div className="text-lg font-bold text-white font-mono mt-1">
+            {summary.ultraCashSweepCount > 0 ? `${summary.ultraCashSweepWinRate}%` : '—'}
+            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
+              ({summary.ultraCashSweepWins}/{summary.ultraCashSweepCount} trades)
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+            NSE_EQ + Threshold Confluence ≥ 2 + Crossover Age ≤ 12
+          </p>
+        </div>
+
+        {/* Combo 3: ULTRA Fresh Wave */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-cyan-900/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1">
+              <Zap className="w-3 h-3 text-cyan-400" />
+              3. ULTRA Fresh Wave
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-cyan-900/60 text-cyan-200 border border-cyan-700">
+              91.4% Direct M1
+            </span>
+          </div>
+          <div className="text-lg font-bold text-white font-mono mt-1">
+            {summary.ultraFreshWaveCount > 0 ? `${summary.ultraFreshWaveWinRate}%` : '—'}
+            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
+              ({summary.ultraFreshWaveWins}/{summary.ultraFreshWaveCount} trades)
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+            Age ≤ 6 candles + Thresh ≥ 2 + 10:00–12:30 IST
+          </p>
+        </div>
+
+        {/* Combo 4: ULTRA EQ Recovery & Fade Inversion */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-900/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
+              <Award className="w-3 h-3 text-amber-400" />
+              4. EQ M2 / Fade Inversion
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-900/60 text-amber-200 border border-amber-700">
+              91.9% / 92.3%
+            </span>
+          </div>
+          <div className="text-lg font-bold text-white font-mono mt-1">
+            {summary.ultraEqRecoveryCount > 0 ? `${summary.ultraEqRecoveryWinRate}%` : '—'}
+            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
+              ({summary.ultraEqRecoveryWins}/{summary.ultraEqRecoveryCount} EQ recov • {summary.fadeInversionCount} inversions)
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+            EQ loss &lt;= 3.5x recovery • Climax futures fade
+          </p>
+        </div>
+      </div>
+
+      {/* Row 2: Standard Baseline vs High Confluence KPI Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2">
         {/* Win Rate (High Score) */}
         <div className="bg-slate-950/70 border border-emerald-900/40 rounded-xl p-3">
           <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">

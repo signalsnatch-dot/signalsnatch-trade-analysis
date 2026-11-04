@@ -64,11 +64,13 @@ export const deduplicateLiveAnalyses = (analysesList: TradeMilestoneAnalysis[]):
 interface LiveTrackerPanelProps {
   onOpenChart: (analysis: TradeMilestoneAnalysis) => void;
   initialTrades?: TradeSignal[];
+  onLiveTradesUpdate?: (trades: TradeSignal[]) => void;
 }
 
 export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   onOpenChart,
   initialTrades = [],
+  onLiveTradesUpdate,
 }) => {
   const todayIST = UpstoxApiService.toISTDate(Date.now());
   const [isLiveActive, setIsLiveActive] = useState(true);
@@ -146,11 +148,19 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
           versionFilters: ['ULTRA', 'UBER', 'META_THURSDAY'],
           useAllVersions: false,
           volumeTradesOnly: volumeOnly,
+          skipCache: true,
+          isLive: true,
         }),
       });
       const data = await res.json();
-      if (data.result?.analyses && Array.isArray(data.result.analyses)) {
-        setLiveAnalyses(deduplicateLiveAnalyses(data.result.analyses));
+      if (data.result) {
+        const allAnalyses = [
+          ...(Array.isArray(data.result.analyses) ? data.result.analyses : []),
+          ...(Array.isArray(data.result.incompleteTrades) ? data.result.incompleteTrades : []),
+        ];
+        if (allAnalyses.length > 0) {
+          setLiveAnalyses(deduplicateLiveAnalyses(allAnalyses));
+        }
       }
     } catch (e) {
       console.error('Error evaluating live milestones:', e);
@@ -204,11 +214,10 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         }
         setPreviousTradesCount(uniqueLiveTrades.length);
         setLiveTrades(uniqueLiveTrades);
+        onLiveTradesUpdate?.(uniqueLiveTrades);
 
-        // Run Command 2 milestone pipeline on the incoming live trades
-        await evaluateTradesMilestones(uniqueLiveTrades);
-        // Also trigger automatic 1m candle batch refresh for any pending instruments
-        batchRefreshPendingCandles();
+        // Refresh 1m candles for pending live instruments and evaluate milestones immediately
+        await batchRefreshPendingCandles(uniqueLiveTrades);
       } else {
         setErrorMessage(data.error || 'Invalid response from live poll');
       }
@@ -243,42 +252,72 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   // Initial computation if trades already present
   useEffect(() => {
     if (liveTrades.length > 0 && liveAnalyses.length === 0) {
-      evaluateTradesMilestones(liveTrades);
+      batchRefreshPendingCandles(liveTrades);
     }
   }, [liveTrades]);
 
   // Batch refresh 1-minute candles for all instruments with pending M1 or M2 (Requirement 4)
-  const batchRefreshPendingCandles = useCallback(async () => {
-    // Find instruments with pending M1 or pending M2
+  const batchRefreshPendingCandles = useCallback(async (explicitTrades?: TradeSignal[]) => {
+    // Find instruments with pending M1 or pending M2 or missing candles
+    const candidateTrades = explicitTrades && explicitTrades.length > 0
+      ? explicitTrades
+      : liveAnalyses.length > 0
+      ? liveAnalyses.map((a) => a.trade)
+      : liveTrades;
+
+    if (candidateTrades.length === 0) return;
+
     const pendingInstruments = Array.from(
       new Set(
-        liveAnalyses
-          .filter((a) => !a.milestone1 || !a.milestone2 || a.milestone2.type === 'PENDING')
-          .map((a) => a.trade.instrument)
+        candidateTrades
+          .filter((t) => {
+            const a = liveAnalyses.find(
+              (x) => x.trade.instrument === t.instrument && x.trade.timestamp === t.timestamp
+            );
+            if (!a) return true;
+            return (
+              !a.milestone1 ||
+              !a.milestone2 ||
+              a.milestone2.type === 'PENDING' ||
+              a.candlesFoundForDay === 0 ||
+              a.status === 'NO_CANDLE_DATA' ||
+              a.status === 'NEITHER_HIT_YET'
+            );
+          })
+          .map((t) => t.instrument)
       )
     );
-
-    if (pendingInstruments.length === 0) return;
 
     setIsBatchRefreshingCandles(true);
     try {
       const today = selectedDate || todayIST;
-      const res = await fetch('/api/live/batch-refresh-candles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instrumentKeys: pendingInstruments,
-          date: today,
-        }),
-      });
-      const data = await res.json();
+      let refreshedCount = 0;
+
+      if (pendingInstruments.length > 0) {
+        const res = await fetch('/api/live/batch-refresh-candles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instrumentKeys: pendingInstruments,
+            date: today,
+          }),
+        });
+        const data = await res.json();
+        refreshedCount = data.refreshedCount ?? 0;
+      }
+
       const timeStr = UpstoxApiService.toISTString(Date.now()).split(' ')[1] || '';
       setLastBatchCandleRefreshTime(timeStr);
-      setBatchCandleRefreshStatus(`Updated 1m candles for ${data.refreshedCount ?? pendingInstruments.length} pending instruments at ${timeStr}`);
+      setBatchCandleRefreshStatus(
+        refreshedCount > 0
+          ? `Synced 1m candles for ${refreshedCount} instrument(s) at ${timeStr}`
+          : `All 1m candles up-to-date at ${timeStr}`
+      );
 
       // Re-evaluate milestones with the freshly saved 1m candles!
-      if (liveTrades.length > 0) {
-        await evaluateTradesMilestones(liveTrades);
+      const targetTrades = explicitTrades && explicitTrades.length > 0 ? explicitTrades : liveTrades;
+      if (targetTrades.length > 0) {
+        await evaluateTradesMilestones(targetTrades);
       }
     } catch (e) {
       console.error('Failed 1m batch candle refresh:', e);
@@ -393,7 +432,9 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       'sl_cross_count', 'tp_cross_count', 'entry_cross_count', 'drawdown_ticks', 'drawdown_time',
       'entry_sma_fast', 'entry_sma_slow', 'entry_ema_20', 'candle_direction', 'candle_position_wrt_ma',
       'sma_crossover_state', 'sma_crossover_prior_candles', 'sma_crossover_ended_in_candles',
-      'enhanced_engine', 'enhanced_score', 'is_high_confluence', 'achieved_rules', 'missed_rules', 'user_note',
+      'enhanced_engine', 'enhanced_score', 'lifecycle_state', 'is_high_confluence', 'high_confluence_combinations', 'inversion_signal',
+      'pre_entry_verdict', 'hold_advice', 'exit_advice',
+      'achieved_rules', 'missed_rules', 'not_applicable_rules', 'user_note',
       'guidance_advice'
     ];
 
@@ -425,8 +466,15 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         dd.slCrossCount, dd.tpCrossCount, dd.entryCrossCount, dd.drawdownTicks.toFixed(2), dd.drawdownTimeFormatted,
         ind ? ind.smaFast : '', ind ? ind.smaSlow : '', ind ? ind.ema20 : '', ind ? ind.candleDirection : '', ind ? ind.candlePositionWrtMa : '',
         ind ? ind.crossoverState : '', ind ? ind.crossoverCandlesPrior : '', ind ? (ind.crossoverEndedInCandles !== null ? ind.crossoverEndedInCandles : 'Persisted') : '',
-        evalResult.engineType, `${evalResult.score}%`, evalResult.isHighConfluence ? 'YES' : 'NO',
-        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), note,
+        evalResult.engineType, `${evalResult.score}%`, evalResult.lifecycleState.shortLabel, evalResult.isHighConfluence ? 'YES' : 'NO',
+        evalResult.highConfluenceCombinations.map((c) => `${c.name} (${c.winRate}%)`).join('; ') || 'NONE',
+        evalResult.inversionSignal?.shouldInvert
+          ? `${evalResult.inversionSignal.invertedDirection} @ ${evalResult.inversionSignal.entryPrice.toFixed(2)} -> Target SL ${evalResult.inversionSignal.targetPrice.toFixed(2)}`
+          : 'NONE',
+        evalResult.lifecycleAdvice.entryVerdict,
+        evalResult.lifecycleAdvice.holdAdvice,
+        evalResult.lifecycleAdvice.exitAdvice,
+        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), evalResult.notApplicableTags.join('; '), note,
         evalResult.guidance.liveStatusAdvice || evalResult.guidance.lossManagementRule || ''
       ].map(escapeCsv).join(',');
     });

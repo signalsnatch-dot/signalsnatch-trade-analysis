@@ -20,6 +20,8 @@ export interface Command2Options {
   marketDataDir?: string;
   outputReportsDir?: string;
   volumeTradesOnly?: boolean; // Default true (Filter volume-based trades)
+  skipCache?: boolean;
+  isLive?: boolean;
 }
 
 export interface Command2Progress {
@@ -208,18 +210,31 @@ export class Command2Service {
    * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
    */
   async getCandlesForDay(instrumentKey: string, dateStr: string): Promise<Candle[]> {
+    const todayIST = UpstoxApiService.toISTDate(Date.now());
+    const isToday = dateStr === todayIST;
     const cacheKey = `${instrumentKey}_${dateStr}`;
-    if (this.candleMemoryCache.has(cacheKey)) {
+
+    // For non-today historical dates, in-memory cache is permanent and fast
+    if (!isToday && this.candleMemoryCache.has(cacheKey)) {
       return this.candleMemoryCache.get(cacheKey)!;
     }
 
     const safeName = Command1Service.safeFilename(instrumentKey);
     const targetDir = `${this.marketDataDir}/${dateStr}`;
     const csvPath = `${targetDir}/${safeName}.csv`;
-    const todayIST = UpstoxApiService.toISTDate(Date.now());
-    const isToday = dateStr === todayIST;
 
-    // For today's live date, attempt fetching fresh 1-minute candles from Upstox API first
+    // 1. Try reading from CSV on disk first (supports local downloaded, synced, or historical candles)
+    if (typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(csvPath)) {
+      const candles = UpstoxApiService.loadCandlesFromCsv(csvPath);
+      if (candles && candles.length > 0) {
+        if (!isToday) {
+          this.candleMemoryCache.set(cacheKey, candles);
+        }
+        return candles;
+      }
+    }
+
+    // 2. For today's live date, attempt fetching fresh 1-minute candles from Upstox API
     if (isToday) {
       try {
         const liveCandles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
@@ -228,22 +243,15 @@ export class Command2Service {
             fs.mkdirSync(targetDir, { recursive: true });
           }
           UpstoxApiService.saveCandlesToCsv(liveCandles, csvPath);
-          this.candleMemoryCache.set(cacheKey, liveCandles);
           return liveCandles;
         }
       } catch {
-        // Fallback to local CSV cache if API is offline
+        // Fallback
       }
+      return [];
     }
 
-    // 1. Try reading from CSV on disk (supports expired contracts or historical dates)
-    if (typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(csvPath)) {
-      const candles = UpstoxApiService.loadCandlesFromCsv(csvPath);
-      this.candleMemoryCache.set(cacheKey, candles);
-      return candles;
-    }
-
-    // 2. Fallback to API directly for historical dates
+    // 3. Fallback to API directly for historical dates
     try {
       const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
       if (candles.length > 0) {
@@ -361,12 +369,29 @@ export class Command2Service {
     if (typeof window !== 'undefined') return;
     if (Command2Service.isEvaluationCacheLoaded) return;
     try {
+      const todayIST = UpstoxApiService.toISTDate(Date.now());
       if (fs && fs.existsSync && fs.existsSync(Command2Service.cacheFilePath)) {
         const raw = fs.readFileSync(Command2Service.cacheFilePath, 'utf-8');
         const parsed = JSON.parse(raw);
         if (typeof parsed === 'object' && parsed !== null) {
           for (const [key, val] of Object.entries(parsed)) {
-            if (val) Command2Service.evaluationCache.set(key, val as TradeMilestoneAnalysis);
+            const analysis = val as TradeMilestoneAnalysis;
+            if (analysis && analysis.trade) {
+              const tradeDate = analysis.dateStr || UpstoxApiService.toISTDate(analysis.trade.timestamp);
+              // CRITICAL: NEVER load today's live trades or incomplete/empty-candle trades into cache
+              const isIncompleteOrLive =
+                tradeDate === todayIST ||
+                analysis.isIncomplete ||
+                analysis.candlesFoundForDay === 0 ||
+                analysis.status === 'NO_CANDLE_DATA' ||
+                analysis.status === 'NEITHER_HIT_YET' ||
+                !analysis.milestone1 ||
+                analysis.milestone2?.type === 'PENDING';
+
+              if (!isIncompleteOrLive) {
+                Command2Service.evaluationCache.set(key, analysis);
+              }
+            }
           }
         }
       }
@@ -382,9 +407,21 @@ export class Command2Service {
     try {
       const dir = './market_data';
       if (fs && fs.existsSync && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const todayIST = UpstoxApiService.toISTDate(Date.now());
       const obj: Record<string, TradeMilestoneAnalysis> = {};
       for (const [k, v] of Command2Service.evaluationCache.entries()) {
-        obj[k] = v;
+        const tradeDate = v.dateStr || UpstoxApiService.toISTDate(v.trade?.timestamp);
+        if (
+          tradeDate !== todayIST &&
+          !v.isIncomplete &&
+          v.candlesFoundForDay > 0 &&
+          v.status !== 'NO_CANDLE_DATA' &&
+          v.status !== 'NEITHER_HIT_YET' &&
+          v.milestone1 &&
+          v.milestone2?.type !== 'PENDING'
+        ) {
+          obj[k] = v;
+        }
       }
       if (fs && fs.writeFileSync) {
         fs.writeFileSync(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8');
@@ -401,17 +438,35 @@ export class Command2Service {
   /**
    * Evaluate a single trade with evaluation caching support
    */
-  async evaluateTrade(trade: TradeSignal): Promise<TradeMilestoneAnalysis> {
-    Command2Service.loadEvaluationCache();
-    const key = Command2Service.getTradeKey(trade);
-    if (Command2Service.evaluationCache.has(key)) {
-      return Command2Service.evaluationCache.get(key)!;
+  async evaluateTrade(trade: TradeSignal, options?: { skipCache?: boolean }): Promise<TradeMilestoneAnalysis> {
+    const todayIST = UpstoxApiService.toISTDate(Date.now());
+    const tradeDate = UpstoxApiService.toISTDate(trade.timestamp);
+    const isLiveTrade = tradeDate === todayIST || options?.skipCache;
+
+    if (!isLiveTrade) {
+      Command2Service.loadEvaluationCache();
+      const key = Command2Service.getTradeKey(trade);
+      if (Command2Service.evaluationCache.has(key)) {
+        return Command2Service.evaluationCache.get(key)!;
+      }
+
+      const analysis = await this.evaluateTradeInternal(trade);
+      if (
+        !analysis.isIncomplete &&
+        analysis.candlesFoundForDay > 0 &&
+        analysis.status !== 'NO_CANDLE_DATA' &&
+        analysis.status !== 'NEITHER_HIT_YET' &&
+        analysis.milestone1 &&
+        analysis.milestone2?.type !== 'PENDING'
+      ) {
+        Command2Service.evaluationCache.set(key, analysis);
+        Command2Service.saveEvaluationCache();
+      }
+      return analysis;
     }
 
-    const analysis = await this.evaluateTradeInternal(trade);
-    Command2Service.evaluationCache.set(key, analysis);
-    Command2Service.saveEvaluationCache();
-    return analysis;
+    // Live or non-cached trade: evaluate directly
+    return await this.evaluateTradeInternal(trade);
   }
 
   /**
@@ -1460,12 +1515,13 @@ export class Command2Service {
    */
   async evaluateTradesBatch(
     tradesBatch: TradeSignal[],
-    _options?: Command2Options
+    options?: Command2Options
   ): Promise<TradeMilestoneAnalysis[]> {
     const results: TradeMilestoneAnalysis[] = [];
+    const skipCache = options?.skipCache || options?.isLive;
     for (const trade of tradesBatch) {
       if (!trade) continue;
-      const analysis = await this.evaluateTrade(trade);
+      const analysis = await this.evaluateTrade(trade, { skipCache });
       results.push(analysis);
     }
     return results;
@@ -1482,6 +1538,7 @@ export class Command2Service {
     const filters = options?.versionFilters;
     const useAll = options?.useAllVersions ?? false;
     const volumeOnly = options?.volumeTradesOnly !== false; // Default true: Filter only volume based trades
+    const skipCache = options?.skipCache || options?.isLive;
 
     // 0. Deduplicate input trades upfront to avoid redundant evaluations and duplicate output!
     const uniqueTrades = Command2Service.deduplicateTrades(trades);
@@ -1523,7 +1580,7 @@ export class Command2Service {
           message: `Analyzing trade ${globalIdx + 1}/${total}: ${trade.name} (${trade.version})...`,
         });
 
-        const analysis = await this.evaluateTrade(trade);
+        const analysis = await this.evaluateTrade(trade, { skipCache });
         rawAnalyses.push(analysis);
       }
 

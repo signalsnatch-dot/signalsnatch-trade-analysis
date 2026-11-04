@@ -85,9 +85,11 @@ export class UpstoxApiService {
 
   /**
    * Fetch 1-minute candle data for an instrument on a specific date.
-   * If cached locally on disk in `market_data/`, ALWAYS reuse it first (Requirement 3).
+   * - For live/today dates or when forced: fetches fresh intraday candles from Upstox, updates local CSV cache, and falls back to disk cache if network fails.
+   * - For historical dates: reuses local disk CSV cache first, and queries historical endpoint if not cached.
+   * - Works with or without an Upstox access token (Upstox candle endpoints are publicly accessible).
    */
-  async fetch1MinCandles(instrumentKey: string, dateStr: string): Promise<Candle[]> {
+  async fetch1MinCandles(instrumentKey: string, dateStr: string, forceRefresh: boolean = false): Promise<Candle[]> {
     const safeKey = instrumentKey.replace(/[^a-zA-Z0-9_-]/g, '_');
     const localCsvPath = `${this.cacheDir}/${dateStr}/${safeKey}.csv`;
 
@@ -96,15 +98,10 @@ export class UpstoxApiService {
     const encodedKey = encodeURIComponent(instrumentKey);
     const hasLocalCache = typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(localCsvPath);
 
-    // 1. If local CSV disk cache exists, ALWAYS load from local CSV first (supports historical & expired contracts)
-    if (hasLocalCache) {
+    // 1. For historical non-today dates, ALWAYS reuse local CSV disk cache first if available
+    if (!isToday && !forceRefresh && hasLocalCache) {
       const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
       if (cached.length > 0) return cached;
-    }
-
-    // If no access token is configured or for historical non-today dates when CSV is absent, skip expensive failing HTTP calls
-    if (!this.accessToken || (!isToday && !hasLocalCache)) {
-      return [];
     }
 
     const parseCandles = (rawCandles: (string | number)[][]): Candle[] => {
@@ -132,8 +129,8 @@ export class UpstoxApiService {
       return augmentCandlesWithIndicators(matchingDateCandles);
     };
 
-    // 2. Try Intraday endpoint if it's today
-    if (isToday) {
+    // 2. Try Intraday endpoint if it's today (or forced refresh)
+    if (isToday || forceRefresh) {
       try {
         const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
         const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
@@ -145,7 +142,7 @@ export class UpstoxApiService {
           }
         }
       } catch {
-        // Fallback to historical endpoint below
+        // Fallback to historical endpoint or cache below
       }
     }
 
@@ -153,7 +150,7 @@ export class UpstoxApiService {
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}/${dateStr}`;
       const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
-      if (res.data?.data?.candles && Array.isArray(res.data.data.candles)) {
+      if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
           UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
@@ -167,7 +164,7 @@ export class UpstoxApiService {
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}`;
       const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
-      if (res.data?.data?.candles && Array.isArray(res.data.data.candles)) {
+      if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
           UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
@@ -180,7 +177,7 @@ export class UpstoxApiService {
         try {
           const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
           const res = await axios.get(url, { headers: this.getHeaders(), timeout: 8000 });
-          if (res.data?.data?.candles) {
+          if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
             const parsed = parseCandles(res.data.data.candles);
             if (parsed.length > 0) {
               UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
@@ -194,7 +191,7 @@ export class UpstoxApiService {
     }
 
     // Final fallback: if API requests failed, check if local disk cache exists
-    if (fs.existsSync(localCsvPath)) {
+    if (hasLocalCache) {
       const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
       if (cached.length > 0) return cached;
     }

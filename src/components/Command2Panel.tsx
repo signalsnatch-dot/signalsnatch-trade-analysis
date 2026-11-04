@@ -336,7 +336,9 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       'entry_cross_count', 'loss_entry_time', 'loss_m1_time', 'drawdown_ticks', 'drawdown_time',
       'entry_sma_fast', 'entry_sma_slow', 'entry_ema_20', 'candle_direction', 'candle_position_wrt_ma',
       'sma_crossover_state', 'sma_crossover_prior_candles', 'sma_crossover_ended_in_candles',
-      'enhanced_engine', 'enhanced_score', 'is_high_confluence', 'achieved_rules', 'missed_rules', 'user_note',
+      'enhanced_engine', 'enhanced_score', 'lifecycle_state', 'is_high_confluence', 'high_confluence_combinations', 'inversion_signal',
+      'pre_entry_verdict', 'hold_advice', 'exit_advice',
+      'achieved_rules', 'missed_rules', 'not_applicable_rules', 'user_note',
       'm2_notes'
     ];
 
@@ -371,8 +373,15 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
         dd.drawdownTicks.toFixed(2), dd.drawdownTimeFormatted, ind ? ind.smaFast : '', ind ? ind.smaSlow : '',
         ind ? ind.ema20 : '', ind ? ind.candleDirection : '', ind ? ind.candlePositionWrtMa : '', ind ? ind.crossoverState : '',
         ind ? ind.crossoverCandlesPrior : '', ind ? (ind.crossoverEndedInCandles !== null ? ind.crossoverEndedInCandles : 'Persisted') : '',
-        evalResult.engineType, `${evalResult.score}%`, evalResult.isHighConfluence ? 'YES' : 'NO',
-        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), note,
+        evalResult.engineType, `${evalResult.score}%`, evalResult.lifecycleState.shortLabel, evalResult.isHighConfluence ? 'YES' : 'NO',
+        evalResult.highConfluenceCombinations.map((c) => `${c.name} (${c.winRate}%)`).join('; ') || 'NONE',
+        evalResult.inversionSignal?.shouldInvert
+          ? `${evalResult.inversionSignal.invertedDirection} @ ${evalResult.inversionSignal.entryPrice.toFixed(2)} -> Target SL ${evalResult.inversionSignal.targetPrice.toFixed(2)}`
+          : 'NONE',
+        evalResult.lifecycleAdvice.entryVerdict,
+        evalResult.lifecycleAdvice.holdAdvice,
+        evalResult.lifecycleAdvice.exitAdvice,
+        evalResult.achievedTags.join('; '), evalResult.missedTags.join('; '), evalResult.notApplicableTags.join('; '), note,
         m2?.notes || ''
       ].map(escapeCsv).join(',');
     });

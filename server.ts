@@ -43,7 +43,16 @@ if (!fs.existsSync(sampleSignalTarget) && fs.existsSync(defaultSeedPath)) {
   }
 }
 
+const TOKEN_FILE = path.resolve(__dirname, '.upstox_token');
 let activeUpstoxToken: string | undefined = process.env.UPSTOX_ACCESS_TOKEN;
+if (!activeUpstoxToken && fs.existsSync(TOKEN_FILE)) {
+  try {
+    const saved = fs.readFileSync(TOKEN_FILE, 'utf-8').trim();
+    if (saved) activeUpstoxToken = saved;
+  } catch {
+    // Ignore error reading token file
+  }
+}
 
 function getApiService(): UpstoxApiService {
   return new UpstoxApiService({ accessToken: activeUpstoxToken, cacheDir: MARKET_DATA_DIR });
@@ -422,8 +431,8 @@ async function startServer() {
   app.post('/api/command2/run', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
     try {
-      const { filename, trades: customTrades, versionFilters, useAllVersions, volumeTradesOnly } = req.body;
-      console.log(`\n[API /command2/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | VolumeOnly: ${volumeTradesOnly !== false}`);
+      const { filename, trades: customTrades, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
+      console.log(`\n[API /command2/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | VolumeOnly: ${volumeTradesOnly !== false} | Live: ${Boolean(isLive)}`);
 
       let tradesToProcess: TradeSignal[] = [];
 
@@ -461,6 +470,8 @@ async function startServer() {
         versionFilters: Array.isArray(versionFilters) ? versionFilters : ['ULTRA', 'UBER'],
         useAllVersions: Boolean(useAllVersions),
         volumeTradesOnly: volumeTradesOnly !== false,
+        skipCache: Boolean(skipCache || isLive),
+        isLive: Boolean(isLive),
         marketDataDir: MARKET_DATA_DIR,
         outputReportsDir: REPORTS_DIR,
       });
@@ -481,7 +492,7 @@ async function startServer() {
   app.post('/api/command2/run-batch', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
     try {
-      const { tradesChunk, batchIndex, totalBatches, versionFilters, useAllVersions, volumeTradesOnly } = req.body;
+      const { tradesChunk, batchIndex, totalBatches, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
 
       if (!Array.isArray(tradesChunk) || tradesChunk.length === 0) {
         return res.status(400).json({ error: 'No trades in chunk to evaluate' });
@@ -498,6 +509,8 @@ async function startServer() {
         versionFilters: Array.isArray(versionFilters) ? versionFilters : ['ULTRA', 'UBER'],
         useAllVersions: Boolean(useAllVersions),
         volumeTradesOnly: volumeTradesOnly !== false,
+        skipCache: Boolean(skipCache || isLive),
+        isLive: Boolean(isLive),
       });
 
       const elapsedMs = Date.now() - reqStartMs;
@@ -720,39 +733,74 @@ async function startServer() {
 
   // 10c. Batch Refresh 1-Minute Candles for Live Instruments
   app.post('/api/live/batch-refresh-candles', async (req: Request, res: Response) => {
+    const syncStartMs = Date.now();
     try {
       const { instrumentKeys, date } = req.body;
       const targetDate = date || UpstoxApiService.toISTDate(Date.now());
       const api = getApiService();
-      const keys: string[] = Array.isArray(instrumentKeys) ? instrumentKeys : [];
+      const rawKeys: string[] = Array.isArray(instrumentKeys) ? instrumentKeys : [];
+      const keys = Array.from(new Set(rawKeys.filter(Boolean)));
       let refreshedCount = 0;
 
-      for (const key of keys) {
-        try {
-          const candles = await api.fetch1MinCandles(key, targetDate);
-          if (candles.length > 0) {
-            const safeName = Command1Service.safeFilename(key);
-            const targetSubdir = path.join(MARKET_DATA_DIR, targetDate);
-            if (!fs.existsSync(targetSubdir)) fs.mkdirSync(targetSubdir, { recursive: true });
-            const csvPath = path.join(targetSubdir, `${safeName}.csv`);
-            UpstoxApiService.saveCandlesToCsv(candles, csvPath);
-            refreshedCount++;
-          }
-        } catch {
-          // Continue with remaining instruments
-        }
+      // Process in concurrent chunks of 5 for speed and non-blocking I/O
+      const CHUNK_SIZE = 5;
+      for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+        const chunk = keys.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (key) => {
+            try {
+              const candles = await api.fetch1MinCandles(key, targetDate, true);
+              if (candles.length > 0) {
+                const safeName = Command1Service.safeFilename(key);
+                const targetSubdir = path.join(MARKET_DATA_DIR, targetDate);
+                if (!fs.existsSync(targetSubdir)) fs.mkdirSync(targetSubdir, { recursive: true });
+                const csvPath = path.join(targetSubdir, `${safeName}.csv`);
+                UpstoxApiService.saveCandlesToCsv(candles, csvPath);
+                refreshedCount++;
+              }
+            } catch {
+              // Continue with remaining instruments
+            }
+          })
+        );
       }
 
-      res.json({ success: true, refreshedCount, totalRequested: keys.length, targetDate });
+      const elapsedMs = Date.now() - syncStartMs;
+      console.log(`[LIVE 1M CANDLES SYNC] ${targetDate}: ${refreshedCount}/${keys.length} instruments refreshed in ${elapsedMs}ms`);
+
+      res.json({
+        success: true,
+        refreshedCount,
+        totalRequested: keys.length,
+        targetDate,
+        hasToken: Boolean(activeUpstoxToken),
+      });
     } catch (err: unknown) {
       res.status(500).send(err instanceof Error ? err.message : String(err));
     }
   });
 
-  // 11. Upstox Token Configuration
+  // 11. Upstox Token Configuration (Get and Post with Disk Persistence)
+  app.get('/api/config/token', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      hasToken: Boolean(activeUpstoxToken),
+      preview: activeUpstoxToken ? `${activeUpstoxToken.slice(0, 10)}...` : null,
+    });
+  });
+
   app.post('/api/config/token', (req: Request, res: Response) => {
     const { token } = req.body;
     activeUpstoxToken = token ? String(token).trim() : undefined;
+    try {
+      if (activeUpstoxToken) {
+        fs.writeFileSync(TOKEN_FILE, activeUpstoxToken, 'utf-8');
+      } else if (fs.existsSync(TOKEN_FILE)) {
+        fs.unlinkSync(TOKEN_FILE);
+      }
+    } catch (e) {
+      console.warn('Failed to persist token file:', e);
+    }
     res.json({ success: true, tokenSet: Boolean(activeUpstoxToken) });
   });
 

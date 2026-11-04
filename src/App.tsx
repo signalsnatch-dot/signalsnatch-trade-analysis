@@ -200,6 +200,27 @@ export default function App() {
     }
   }, [trades, cmd2Result, isCmd2Running, handleRunCommand2]);
 
+  const handleLiveTradesUpdate = useCallback((liveTrades: TradeSignal[]) => {
+    if (!liveTrades || liveTrades.length === 0) return;
+    setTrades((prevTrades) => {
+      const existingSignatures = new Set(
+        prevTrades.map(
+          (t) => `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`
+        )
+      );
+      const newIncoming = liveTrades.filter(
+        (t) => !existingSignatures.has(`${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${Number(t.entry || 0).toFixed(2)}`)
+      );
+      if (newIncoming.length === 0) return prevTrades;
+      const merged = [...newIncoming, ...prevTrades];
+      const dates = Array.from(new Set(merged.map((t) => UpstoxApiService.toISTDate(t.timestamp)))).sort();
+      setAvailableDates(dates);
+      const accs = Command1Service.accumulateInstruments(merged);
+      setDayAccumulations(accs);
+      return merged;
+    });
+  }, []);
+
   const handleUploadTrades = async (uploadedTrades: TradeSignal[], filename: string) => {
     try {
       const res = await fetch('/api/signals/upload', {
@@ -580,6 +601,7 @@ export default function App() {
           <LiveTrackerPanel
             initialTrades={trades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === UpstoxApiService.toISTDate(Date.now()))}
             onOpenChart={(analysis) => setChartAnalysis(analysis)}
+            onLiveTradesUpdate={handleLiveTradesUpdate}
           />
         )}
       </main>

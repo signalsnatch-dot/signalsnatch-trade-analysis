@@ -15,6 +15,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [tokenInput, setTokenInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [hasServerToken, setHasServerToken] = useState(false);
+  const [tokenPreview, setTokenPreview] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen) {
+      fetch('/api/config/token')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.hasToken) {
+            setHasServerToken(true);
+            setTokenPreview(data.preview || null);
+          } else {
+            setHasServerToken(false);
+            setTokenPreview(null);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -22,6 +41,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     setIsSaving(true);
     await onSaveToken(tokenInput);
     setIsSaving(false);
+    setSavedSuccess(true);
+    setHasServerToken(Boolean(tokenInput.trim()));
+    setTokenPreview(tokenInput.trim() ? `${tokenInput.trim().slice(0, 10)}...` : null);
+    setTokenInput('');
+    setTimeout(() => setSavedSuccess(false), 2500);
+  };
+
+  const handleClear = async () => {
+    setIsSaving(true);
+    await onSaveToken('');
+    setIsSaving(false);
+    setHasServerToken(false);
+    setTokenPreview(null);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
   };
@@ -56,34 +88,49 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                Upstox Access Token (Optional)
+                Upstox Access Token
               </label>
-              <span className="text-[11px] text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60">
-                Public Endpoints Active
-              </span>
+              {hasServerToken ? (
+                <span className="text-[11px] text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60 font-mono">
+                  Token Active ({tokenPreview || 'configured'})
+                </span>
+              ) : (
+                <span className="text-[11px] text-cyan-400 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-800/60">
+                  Public Endpoints Active (No Auth Required)
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Upstox historical candle endpoints are queried automatically. If you have a private authenticated account or want to use your OAuth access token, enter it below.
+              Upstox historical and intraday 1-minute candle endpoints work without an access token. If you have an authenticated private account or want higher rate limits, paste your OAuth access token below.
             </p>
             <div className="flex gap-2">
               <input
                 type="password"
-                placeholder="Paste Upstox access token (starts with ey...)"
+                placeholder={hasServerToken ? 'Token configured (paste new token to overwrite)' : 'Paste Upstox access token (starts with ey...)'}
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
                 className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
               />
               <button
                 onClick={handleSave}
-                disabled={isSaving}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition"
+                disabled={isSaving || !tokenInput.trim()}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-semibold transition cursor-pointer"
               >
                 {isSaving ? 'Saving...' : 'Save Token'}
               </button>
+              {hasServerToken && (
+                <button
+                  onClick={handleClear}
+                  disabled={isSaving}
+                  className="px-3 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 text-xs font-semibold transition cursor-pointer"
+                >
+                  Clear Token
+                </button>
+              )}
             </div>
             {savedSuccess && (
               <p className="text-xs text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Token saved successfully.
+                <CheckCircle2 className="w-3.5 h-3.5" /> Token settings updated successfully.
               </p>
             )}
           </div>
