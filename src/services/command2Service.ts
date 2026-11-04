@@ -173,9 +173,9 @@ export class Command2Service {
   private reportsDir: string;
 
   // In-memory caches for 1-minute and daily candle datasets to eliminate disk/network overhead during batch runs
-  private candleMemoryCache = new Map<string, Candle[]>();
-  private dailyCandleMemoryCache = new Map<string, Candle[]>();
-  private candleRangeMemoryCache = new Map<string, Candle[]>();
+  private static candleMemoryCache = new Map<string, Candle[]>();
+  private static dailyCandleMemoryCache = new Map<string, Candle[]>();
+  private static candleRangeMemoryCache = new Map<string, Candle[]>();
 
   constructor(options?: {
     apiService?: UpstoxApiService;
@@ -208,6 +208,9 @@ export class Command2Service {
 
   public static clearAllCaches(options?: { clearDiskCSVs?: boolean }): void {
     Command2Service.evaluationCache.clear();
+    Command2Service.candleMemoryCache.clear();
+    Command2Service.dailyCandleMemoryCache.clear();
+    Command2Service.candleRangeMemoryCache.clear();
     Command2Service.isEvaluationCacheLoaded = false;
 
     if (typeof window === 'undefined' && fs && fs.existsSync) {
@@ -246,8 +249,8 @@ export class Command2Service {
     const cacheKey = `${instrumentKey}_${dateStr}`;
 
     // For non-today historical dates, in-memory cache is permanent and fast (including empty [] negative cache)
-    if (!isToday && this.candleMemoryCache.has(cacheKey)) {
-      return this.candleMemoryCache.get(cacheKey)!;
+    if (!isToday && Command2Service.candleMemoryCache.has(cacheKey)) {
+      return Command2Service.candleMemoryCache.get(cacheKey)!;
     }
 
     const safeName = Command1Service.safeFilename(instrumentKey);
@@ -262,7 +265,7 @@ export class Command2Service {
         const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
         if (candles && candles.length > 0) {
           if (!isToday) {
-            this.candleMemoryCache.set(cacheKey, candles);
+            Command2Service.candleMemoryCache.set(cacheKey, candles);
           }
           return candles;
         }
@@ -278,7 +281,7 @@ export class Command2Service {
         }
         UpstoxApiService.saveCandlesToCsv(candles, csvPath);
         if (!isToday) {
-          this.candleMemoryCache.set(cacheKey, candles);
+          Command2Service.candleMemoryCache.set(cacheKey, candles);
         }
         return candles;
       }
@@ -287,7 +290,7 @@ export class Command2Service {
     }
 
     if (!isToday) {
-      this.candleMemoryCache.set(cacheKey, []);
+      Command2Service.candleMemoryCache.set(cacheKey, []);
     }
     return [];
   }
@@ -297,16 +300,16 @@ export class Command2Service {
    */
   async fetchDailyCandlesCached(instrument: string, fromDate: string, toDate: string): Promise<Candle[]> {
     const key = `daily_${instrument}_${fromDate}_${toDate}`;
-    if (this.dailyCandleMemoryCache.has(key)) {
-      return this.dailyCandleMemoryCache.get(key)!;
+    if (Command2Service.dailyCandleMemoryCache.has(key)) {
+      return Command2Service.dailyCandleMemoryCache.get(key)!;
     }
     try {
       const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
       const safe = res || [];
-      this.dailyCandleMemoryCache.set(key, safe);
+      Command2Service.dailyCandleMemoryCache.set(key, safe);
       return safe;
     } catch {
-      this.dailyCandleMemoryCache.set(key, []);
+      Command2Service.dailyCandleMemoryCache.set(key, []);
       return [];
     }
   }
@@ -316,16 +319,16 @@ export class Command2Service {
    */
   async fetchCandleRangeCached(instrument: string, fromDate: string, toDate: string): Promise<Candle[]> {
     const key = `range_${instrument}_${fromDate}_${toDate}`;
-    if (this.candleRangeMemoryCache.has(key)) {
-      return this.candleRangeMemoryCache.get(key)!;
+    if (Command2Service.candleRangeMemoryCache.has(key)) {
+      return Command2Service.candleRangeMemoryCache.get(key)!;
     }
     try {
       const res = await this.apiService.fetchCandleRange(instrument, fromDate, toDate);
       const safe = res || [];
-      this.candleRangeMemoryCache.set(key, safe);
+      Command2Service.candleRangeMemoryCache.set(key, safe);
       return safe;
     } catch {
-      this.candleRangeMemoryCache.set(key, []);
+      Command2Service.candleRangeMemoryCache.set(key, []);
       return [];
     }
   }
@@ -530,9 +533,8 @@ export class Command2Service {
       ? Math.abs(trade.entry - trade.sl) || 1
       : Math.abs(trade.entry - trade.tp) || 1;
 
-    // Load 1-minute candles for the entry day
-    const rawDayCandles = await this.getCandlesForDay(trade.instrument, dateStr);
-    const dayCandles = augmentCandlesWithIndicators(rawDayCandles);
+    // Load 1-minute candles for the entry day (already augmented with indicators)
+    const dayCandles = await this.getCandlesForDay(trade.instrument, dateStr);
 
     const defaultDrawdown: DrawdownAnalysis = {
       plannedRisk: parseFloat(plannedRisk.toFixed(2)),
@@ -1586,7 +1588,7 @@ export class Command2Service {
     const rawAnalyses: TradeMilestoneAnalysis[] = [];
     const total = filteredTrades.length;
 
-    const BATCH_SIZE = 15;
+    const BATCH_SIZE = 50;
     const startTimeMs = Date.now();
     console.log(`\n==================================================`);
     console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in parallel batches of ${BATCH_SIZE}...`);
