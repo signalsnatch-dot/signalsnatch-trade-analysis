@@ -87,6 +87,12 @@ export class UpstoxApiService {
     return headers;
   }
 
+  private static failedInstrumentDates = new Set<string>();
+
+  public static clearFailedCache(): void {
+    UpstoxApiService.failedInstrumentDates.clear();
+  }
+
   /**
    * Fetch 1-minute candle data for an instrument on a specific date.
    * - For live/today dates or when forced: fetches fresh intraday candles from Upstox, updates local CSV cache, and falls back to disk cache if network fails.
@@ -96,6 +102,17 @@ export class UpstoxApiService {
   async fetch1MinCandles(instrumentKey: string, dateStr: string, forceRefresh: boolean = false): Promise<Candle[]> {
     const safeKey = instrumentKey.replace(/[^a-zA-Z0-9_-]/g, '_');
     const localCsvPath = `${this.cacheDir}/${dateStr}/${safeKey}.csv`;
+    const failKey = `${instrumentKey}_${dateStr}`;
+
+    // Fast return if this instrument/date is known to have no data on Upstox API
+    if (!forceRefresh && UpstoxApiService.failedInstrumentDates.has(failKey)) {
+      const hasLocalCache = typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(localCsvPath);
+      if (hasLocalCache) {
+        const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
+        if (cached.length > 0) return cached;
+      }
+      return [];
+    }
 
     const todayIST = UpstoxApiService.toISTDate(Date.now());
     const isToday = dateStr === todayIST;
@@ -129,7 +146,6 @@ export class UpstoxApiService {
       });
 
       matchingDateCandles.sort((a, b) => a.timeMs - b.timeMs);
-      // Augment with EMA20, SMA9, SMA21, Crossover indicators
       return augmentCandlesWithIndicators(matchingDateCandles);
     };
 
@@ -137,7 +153,7 @@ export class UpstoxApiService {
     if (isToday || forceRefresh) {
       try {
         const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
-        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
+        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
         if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
           const parsed = parseCandles(res.data.data.candles);
           if (parsed.length > 0) {
@@ -146,14 +162,14 @@ export class UpstoxApiService {
           }
         }
       } catch {
-        // Fallback to historical endpoint or cache below
+        // Fallback below
       }
     }
 
     // 3. Try Historical endpoint: /v2/historical-candle/{instrumentKey}/1minute/{to_date}/{from_date}
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -167,7 +183,7 @@ export class UpstoxApiService {
 
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -176,12 +192,12 @@ export class UpstoxApiService {
         }
       }
     } catch {
-      // Try intraday endpoint as a backup fallback
+      // Try intraday backup
     }
 
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -199,6 +215,8 @@ export class UpstoxApiService {
       if (cached.length > 0) return cached;
     }
 
+    // Mark as failed so subsequent trades do not retry slow network calls
+    UpstoxApiService.failedInstrumentDates.add(failKey);
     return [];
   }
 

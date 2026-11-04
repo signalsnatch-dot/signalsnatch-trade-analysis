@@ -56,8 +56,31 @@ export const MarketDataManagerModal: React.FC<MarketDataManagerModalProps> = ({
   // Existing files list
   const [filesList, setFilesList] = useState<MarketDataFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [isClearingCache, setIsClearingCache] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleClearCache = async (clearDisk = false) => {
+    setIsClearingCache(true);
+    try {
+      const res = await fetch(`/api/market-data/clear-cache?clearDiskCSVs=${clearDisk}`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setUploadMessage({
+          type: 'success',
+          text: data.message || 'Market data & evaluation cache invalidated successfully.',
+        });
+        fetchMarketDataFiles();
+        onDataChanged?.();
+      } else {
+        setUploadMessage({ type: 'error', text: data.error || 'Failed to clear cache' });
+      }
+    } catch (err: unknown) {
+      setUploadMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error clearing cache' });
+    } finally {
+      setIsClearingCache(false);
+    }
+  };
   const dirInputRef = useRef<HTMLInputElement | null>(null);
 
   // Fetch files list
@@ -332,6 +355,15 @@ export const MarketDataManagerModal: React.FC<MarketDataManagerModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleClearCache(false)}
+              disabled={isClearingCache}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 border border-amber-800 text-xs font-semibold transition cursor-pointer disabled:opacity-50"
+              title="Clears in-memory candle caches, negative failed checks, and evaluation cache"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isClearingCache ? 'animate-spin' : ''}`} />
+              <span>Invalidate Cache</span>
+            </button>
             <a
               href="/api/download-directory?type=market"
               download="market_data_export.tar.gz"

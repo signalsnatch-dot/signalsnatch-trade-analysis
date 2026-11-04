@@ -206,6 +206,37 @@ export class Command2Service {
     return /uber/i.test(version);
   }
 
+  public static clearAllCaches(options?: { clearDiskCSVs?: boolean }): void {
+    Command2Service.evaluationCache.clear();
+    Command2Service.isEvaluationCacheLoaded = false;
+
+    if (typeof window === 'undefined' && fs && fs.existsSync) {
+      if (fs.existsSync(Command2Service.cacheFilePath)) {
+        try {
+          fs.unlinkSync(Command2Service.cacheFilePath);
+        } catch {
+          // ignore
+        }
+      }
+      if (options?.clearDiskCSVs) {
+        try {
+          const dir = './market_data';
+          if (fs.existsSync(dir)) {
+            const files = fs.readdirSync(dir);
+            for (const f of files) {
+              const full = `${dir}/${f}`;
+              if (fs.statSync(full).isDirectory()) {
+                fs.rmSync(full, { recursive: true, force: true });
+              }
+            }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
+
   /**
    * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
    */
@@ -214,10 +245,9 @@ export class Command2Service {
     const isToday = dateStr === todayIST;
     const cacheKey = `${instrumentKey}_${dateStr}`;
 
-    // For non-today historical dates, in-memory cache is permanent and fast
+    // For non-today historical dates, in-memory cache is permanent and fast (including empty [] negative cache)
     if (!isToday && this.candleMemoryCache.has(cacheKey)) {
-      const cached = this.candleMemoryCache.get(cacheKey)!;
-      if (cached && cached.length > 0) return cached;
+      return this.candleMemoryCache.get(cacheKey)!;
     }
 
     const safeName = Command1Service.safeFilename(instrumentKey);
@@ -256,6 +286,9 @@ export class Command2Service {
       // Continue to empty fallback
     }
 
+    if (!isToday) {
+      this.candleMemoryCache.set(cacheKey, []);
+    }
     return [];
   }
 

@@ -596,7 +596,26 @@ async function startServer() {
     }
   });
 
-  // 9. List Market Data Files
+  // 9. Clear Market Data & Evaluation Caches
+  app.post('/api/market-data/clear-cache', (req: Request, res: Response) => {
+    try {
+      const clearDiskCSVs = Boolean(req.body?.clearDiskCSVs || req.query?.clearDiskCSVs);
+      Command2Service.clearAllCaches({ clearDiskCSVs });
+      UpstoxApiService.clearFailedCache();
+      invalidateSignalsCache();
+      console.log(`[CACHE CLEAR] Cleared evaluation and candle memory caches (clearDiskCSVs: ${clearDiskCSVs})`);
+      res.json({
+        success: true,
+        message: clearDiskCSVs
+          ? 'Cleared evaluation cache, in-memory candle caches, and deleted downloaded market data CSVs.'
+          : 'Cleared evaluation cache and in-memory candle caches.',
+      });
+    } catch (err: unknown) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // 9b. List Market Data Files
   app.get('/api/market-data/files', (req: Request, res: Response) => {
     try {
       const results: { date: string; filename: string; relativePath: string; size: number; lines: number }[] = [];
