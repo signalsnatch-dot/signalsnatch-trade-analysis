@@ -2,7 +2,10 @@ node_modules/
 build/
 dist/
 coverage/
+reports/
+market_data/
 .DS_Store
 *.log
 .env*
 !.env.example
+
