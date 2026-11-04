@@ -2,6 +2,7 @@ import axios from 'axios';
 import fs from 'fs';
 import { Candle } from '../types/trade.ts';
 import { augmentCandlesWithIndicators } from './indicators.ts';
+import { SystemDiagnostics } from '../utils/systemDiagnostics.ts';
 
 const UPSTOX_BASE_URL = 'https://api.upstox.com/v2';
 
@@ -153,7 +154,8 @@ export class UpstoxApiService {
     if (isToday || forceRefresh) {
       try {
         const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
-        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
+        const res = await axios.get(url, { headers: this.getHeaders(), timeout: 1500 });
+        SystemDiagnostics.recordUpstoxCall('success');
         if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
           const parsed = parseCandles(res.data.data.candles);
           if (parsed.length > 0) {
@@ -161,15 +163,18 @@ export class UpstoxApiService {
             return parsed;
           }
         }
-      } catch {
-        // Fallback below
+      } catch (err: any) {
+        const isTimeout = err?.code === 'ECONNABORTED' || String(err?.message || '').includes('timeout');
+        const is429 = err?.response?.status === 429;
+        SystemDiagnostics.recordUpstoxCall(isTimeout ? 'timeout' : is429 ? 'rate_limit' : 'failed');
       }
     }
 
     // 3. Try Historical endpoint: /v2/historical-candle/{instrumentKey}/1minute/{to_date}/{from_date}
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 1500 });
+      SystemDiagnostics.recordUpstoxCall('success');
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -177,13 +182,16 @@ export class UpstoxApiService {
           return parsed;
         }
       }
-    } catch {
-      // Try single-date parameter fallback
+    } catch (err: any) {
+      const isTimeout = err?.code === 'ECONNABORTED' || String(err?.message || '').includes('timeout');
+      const is429 = err?.response?.status === 429;
+      SystemDiagnostics.recordUpstoxCall(isTimeout ? 'timeout' : is429 ? 'rate_limit' : 'failed');
     }
 
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 1500 });
+      SystemDiagnostics.recordUpstoxCall('success');
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -191,22 +199,10 @@ export class UpstoxApiService {
           return parsed;
         }
       }
-    } catch {
-      // Try intraday backup
-    }
-
-    try {
-      const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 3000 });
-      if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
-        const parsed = parseCandles(res.data.data.candles);
-        if (parsed.length > 0) {
-          UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
-          return parsed;
-        }
-      }
-    } catch {
-      // Ignore
+    } catch (err: any) {
+      const isTimeout = err?.code === 'ECONNABORTED' || String(err?.message || '').includes('timeout');
+      const is429 = err?.response?.status === 429;
+      SystemDiagnostics.recordUpstoxCall(isTimeout ? 'timeout' : is429 ? 'rate_limit' : 'failed');
     }
 
     // Final fallback: check if local disk cache exists

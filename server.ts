@@ -10,6 +10,7 @@ import { Command2Service } from './src/services/command2Service.ts';
 import { augmentCandlesWithIndicators } from './src/services/indicators.ts';
 import { TradeSignal } from './src/types/trade.ts';
 import { parseBatchMarketData } from './src/services/marketDataParser.ts';
+import { SystemDiagnostics } from './src/utils/systemDiagnostics.ts';
 
 import { exec } from 'child_process';
 
@@ -446,9 +447,11 @@ async function startServer() {
   // 7. Run Command 2
   app.post('/api/command2/run', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
+    SystemDiagnostics.activeRequests++;
+    SystemDiagnostics.logRequestHeader('/api/command2/run', 'Full Batch Execution');
+
     try {
       const { filename, trades: customTrades, selectedDates, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
-      console.log(`\n[API /command2/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | VolumeOnly: ${volumeTradesOnly !== false} | Live: ${Boolean(isLive)}`);
 
       let tradesToProcess: TradeSignal[] = [];
 
@@ -473,7 +476,6 @@ async function startServer() {
 
       const rawCount = tradesToProcess.length;
       tradesToProcess = Command2Service.deduplicateTrades(tradesToProcess);
-      console.log(`[API /command2/run] Total trades: ${rawCount} raw -> ${tradesToProcess.length} unique trades`);
 
       if (tradesToProcess.length === 0) {
         console.warn(`[API /command2/run WARN] No trades available to process`);
@@ -498,26 +500,45 @@ async function startServer() {
       });
 
       const elapsedMs = Date.now() - reqStartMs;
-      console.log(`[API /command2/run SUCCESS] Completed in ${elapsedMs}ms | Analyses: ${result.summary.totalTradesAnalyzed}, Incomplete: ${result.incompleteTrades.length}\n`);
+      SystemDiagnostics.totalApiTimeMs += elapsedMs;
+      SystemDiagnostics.totalBatchesProcessed++;
 
-      res.json({ success: true, result });
+      const diag = SystemDiagnostics.getMetricsSummary();
+      console.log(
+        `[API /command2/run SUCCESS] ${elapsedMs}ms | Trades: ${result.summary.totalTradesAnalyzed} | RAM: ${diag.systemMemory.heapUsedMb}MB (RSS ${diag.systemMemory.rssMb}MB / ${diag.systemMemory.ec2RamUsedPct}) | UpstoxFailures: ${diag.upstoxApiStats.failed}/${diag.upstoxApiStats.total}\n`
+      );
+
+      res.json({ success: true, result, diagnostics: diag });
     } catch (err: unknown) {
       const elapsedMs = Date.now() - reqStartMs;
+      SystemDiagnostics.totalBatchesFailed++;
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[API /command2/run ERROR] (${elapsedMs}ms): ${errMsg}\n`);
       res.status(500).json({ error: errMsg });
+    } finally {
+      SystemDiagnostics.activeRequests = Math.max(0, SystemDiagnostics.activeRequests - 1);
     }
   });
 
   // 7b. Run Command 2 Batch (Fast incremental evaluation for frontend streaming batches)
   app.post('/api/command2/run-batch', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
+    SystemDiagnostics.activeRequests++;
+
     try {
       const { tradesChunk, batchIndex, totalBatches, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
 
       if (!Array.isArray(tradesChunk) || tradesChunk.length === 0) {
         return res.status(400).json({ error: 'No trades in chunk to evaluate' });
       }
+
+      const bIdx = (batchIndex || 0) + 1;
+      const tBatches = totalBatches || 1;
+
+      SystemDiagnostics.logRequestHeader(
+        `/api/command2/run-batch`,
+        `Batch ${bIdx}/${tBatches} (${tradesChunk.length} trades)`
+      );
 
       const apiService = getApiService();
       const cmd2 = new Command2Service({
@@ -535,7 +556,14 @@ async function startServer() {
       });
 
       const elapsedMs = Date.now() - reqStartMs;
-      console.log(`[API /command2/run-batch] Batch ${(batchIndex || 0) + 1}/${totalBatches || 1} completed (${tradesChunk.length} trades) in ${elapsedMs}ms`);
+      SystemDiagnostics.totalApiTimeMs += elapsedMs;
+      SystemDiagnostics.totalBatchesProcessed++;
+
+      const diag = SystemDiagnostics.getMetricsSummary();
+
+      console.log(
+        `[API /command2/run-batch SUCCESS] Batch ${bIdx}/${tBatches} completed (${tradesChunk.length} trades) in ${elapsedMs}ms | ActiveReqs: ${diag.activeRequests} | RAM Heap: ${diag.systemMemory.heapUsedMb}MB / RSS: ${diag.systemMemory.rssMb}MB | UpstoxFailures: ${diag.upstoxApiStats.failed}/${diag.upstoxApiStats.total}`
+      );
 
       res.json({
         success: true,
@@ -543,13 +571,28 @@ async function startServer() {
         totalBatches,
         evaluatedAnalyses,
         count: evaluatedAnalyses.length,
+        executionTimeMs: elapsedMs,
+        diagnostics: diag,
       });
     } catch (err: unknown) {
       const elapsedMs = Date.now() - reqStartMs;
+      SystemDiagnostics.totalBatchesFailed++;
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error(`[API /command2/run-batch ERROR] (${elapsedMs}ms): ${errMsg}`);
       res.status(500).json({ error: errMsg });
+    } finally {
+      SystemDiagnostics.activeRequests = Math.max(0, SystemDiagnostics.activeRequests - 1);
     }
+  });
+
+  // 7c. Health & System Diagnostics Endpoint (Monitor EC2 Memory, Event Loop Lag, Upstox API Health)
+  app.get('/api/system/diagnostics', (_req: Request, res: Response) => {
+    res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      timestampIST: UpstoxApiService.toISTString(Date.now()),
+      metrics: SystemDiagnostics.getMetricsSummary(),
+    });
   });
 
   // 8. Candles with Indicators for Charting

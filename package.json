@@ -7,6 +7,7 @@
     "dev": "tsx server.ts",
     "build": "vite build",
     "start": "tsx server.ts",
+    "start:ec2": "NODE_OPTIONS='--max-old-space-size=1536' tsx server.ts",
     "command1": "tsx scripts/run_command1.ts",
     "command2": "tsx scripts/run_command2.ts",
     "analyze": "tsx scripts/upstox_pipeline.ts",
