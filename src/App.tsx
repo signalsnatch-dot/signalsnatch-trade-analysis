@@ -143,7 +143,7 @@ export default function App() {
         totalTrades: filteredTrades.length,
       });
 
-      const CONCURRENT_BATCHES = 3;
+      const CONCURRENT_BATCHES = 10;
       for (let i = 0; i < totalBatches; i += CONCURRENT_BATCHES) {
         const batchIndices = Array.from({ length: Math.min(CONCURRENT_BATCHES, totalBatches - i) }, (_, idx) => i + idx);
 

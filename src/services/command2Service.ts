@@ -392,6 +392,38 @@ export class Command2Service {
     if (Command2Service.candleRangeMemoryCache.has(key)) {
       return Command2Service.candleRangeMemoryCache.get(key)!;
     }
+
+    // 1. Parallel local load for each date from disk/memory cache
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    const curr = new Date(start);
+    const dateStrs: string[] = [];
+    let dayCount = 0;
+
+    while (curr <= end && dayCount < 7) {
+      dayCount++;
+      dateStrs.push(curr.toISOString().split('T')[0]);
+      curr.setDate(curr.getDate() + 1);
+    }
+
+    const daysCandles = await Promise.all(dateStrs.map((dStr) => this.getCandlesForDay(instrument, dStr)));
+    const allCandles = daysCandles.flat();
+
+    if (allCandles.length > 0) {
+      allCandles.sort((a, b) => a.timeMs - b.timeMs);
+      const uniqueCandles: Candle[] = [];
+      const seen = new Set<number>();
+      for (const c of allCandles) {
+        if (!seen.has(c.timeMs)) {
+          seen.add(c.timeMs);
+          uniqueCandles.push(c);
+        }
+      }
+      Command2Service.candleRangeMemoryCache.set(key, uniqueCandles);
+      return uniqueCandles;
+    }
+
+    // 2. Fallback to API if local data is unavailable
     try {
       const res = await this.apiService.fetchCandleRange(instrument, fromDate, toDate);
       const safe = res || [];
