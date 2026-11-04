@@ -1,5 +1,4 @@
 import express, { Request, Response } from 'express';
-import compression from 'compression';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -119,8 +118,18 @@ function loadAllSignals(): { filename: string; trades: TradeSignal[] }[] {
 async function startServer() {
   const app = express();
   
-  // Enable Gzip compression to reduce 20MB+ JSON payloads down to ~1.5MB for fast non-blocking transfers
-  app.use(compression());
+  // Enable Gzip compression if installed; fallback gracefully if package is not present
+  try {
+    const compMod = await import('compression');
+    const compFn = (compMod as any).default || compMod;
+    if (typeof compFn === 'function') {
+      app.use(compFn());
+      console.log(`[SERVER] Gzip HTTP response compression enabled.`);
+    }
+  } catch {
+    console.log(`[SERVER] Note: 'compression' package not installed in node_modules; continuing without response compression.`);
+  }
+
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -846,6 +855,25 @@ async function startServer() {
     } catch (err: unknown) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // Global API error handler (catches aborted requests and client disconnects cleanly)
+  app.use((err: any, _req: Request, res: Response, next: any) => {
+    if (err) {
+      if (err.type === 'request.aborted' || err.message === 'request aborted' || err.code === 'ECONNABORTED') {
+        // Client aborted/disconnected in flight; handle gracefully without crash or unhandled stderr
+        if (!res.headersSent) {
+          res.status(400).end();
+        }
+        return;
+      }
+      console.error('[EXPRESS ERROR]', err);
+      if (!res.headersSent) {
+        res.status(err.status || 500).json({ error: err.message || 'Internal Server Error' });
+      }
+      return;
+    }
+    next();
   });
 
   // Mount Vite middleware in dev or static files in production / build

@@ -90,6 +90,17 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   const [batchCandleRefreshStatus, setBatchCandleRefreshStatus] = useState<string | null>(null);
   const batchCandleTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Synchronization refs to prevent overlapping requests and aborted network connections
+  const isPollingRef = useRef(false);
+  const isBatchRefreshingRef = useRef(false);
+  const isEvaluatingRef = useRef(false);
+  const lastEvaluatedSignatureRef = useRef<string>('');
+
+  // Helper to compute stable signature of trade batch to prevent redundant executions
+  const computeTradeSignature = (trades: TradeSignal[]): string => {
+    return `${trades.length}_${trades.map((t) => `${t.instrument}_${t.timestamp}_${t.version}_${t.type}_${t.status}`).join(';')}`;
+  };
+
   // Raw & Processed data (filter initialTrades to todayIST only to prevent Oct 27 flash, and deduplicate)
   const [liveTrades, setLiveTrades] = useState<TradeSignal[]>(() => {
     return deduplicateLiveTrades(initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST));
@@ -137,9 +148,10 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
   }, []);
 
   // Evaluate milestones by calling the backend Command 2 endpoint
-  const evaluateTradesMilestones = async (tradesToAnalyze: TradeSignal[]) => {
+  const evaluateTradesMilestones = useCallback(async (tradesToAnalyze: TradeSignal[]) => {
+    if (tradesToAnalyze.length === 0 || isEvaluatingRef.current) return;
+    isEvaluatingRef.current = true;
     try {
-      // Analyze all 3 presets by default so switching between presets in UI is instantaneous
       const res = await fetch('/api/command2/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -152,6 +164,9 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
           isLive: true,
         }),
       });
+      if (!res.ok) {
+        return;
+      }
       const data = await res.json();
       if (data.result) {
         const allAnalyses = [
@@ -162,14 +177,96 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
           setLiveAnalyses(deduplicateLiveAnalyses(allAnalyses));
         }
       }
-    } catch (e) {
-      console.error('Error evaluating live milestones:', e);
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.error('Error evaluating live milestones:', e);
+      }
+    } finally {
+      isEvaluatingRef.current = false;
     }
-  };
+  }, [volumeOnly]);
+
+  // Batch refresh 1-minute candles for all instruments with pending M1 or M2 (Requirement 4)
+  const batchRefreshPendingCandles = useCallback(async (explicitTrades?: TradeSignal[]) => {
+    if (isBatchRefreshingRef.current) return;
+    isBatchRefreshingRef.current = true;
+    setIsBatchRefreshingCandles(true);
+
+    try {
+      const candidateTrades = explicitTrades && explicitTrades.length > 0
+        ? explicitTrades
+        : liveAnalyses.length > 0
+        ? liveAnalyses.map((a) => a.trade)
+        : liveTrades;
+
+      if (candidateTrades.length === 0) return;
+
+      const pendingInstruments = Array.from(
+        new Set(
+          candidateTrades
+            .filter((t) => {
+              const a = liveAnalyses.find(
+                (x) => x.trade.instrument === t.instrument && x.trade.timestamp === t.timestamp
+              );
+              if (!a) return true;
+              return (
+                !a.milestone1 ||
+                !a.milestone2 ||
+                a.milestone2.type === 'PENDING' ||
+                a.candlesFoundForDay === 0 ||
+                a.status === 'NO_CANDLE_DATA' ||
+                a.status === 'NEITHER_HIT_YET'
+              );
+            })
+            .map((t) => t.instrument)
+        )
+      );
+
+      const today = selectedDate || todayIST;
+      let refreshedCount = 0;
+
+      if (pendingInstruments.length > 0) {
+        const res = await fetch('/api/live/batch-refresh-candles', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            instrumentKeys: pendingInstruments,
+            date: today,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          refreshedCount = data.refreshedCount ?? 0;
+        }
+      }
+
+      const timeStr = UpstoxApiService.toISTString(Date.now()).split(' ')[1] || '';
+      setLastBatchCandleRefreshTime(timeStr);
+      setBatchCandleRefreshStatus(
+        refreshedCount > 0
+          ? `Synced 1m candles for ${refreshedCount} instrument(s) at ${timeStr}`
+          : `All 1m candles up-to-date at ${timeStr}`
+      );
+
+      // Re-evaluate milestones with the freshly saved 1m candles!
+      const targetTrades = explicitTrades && explicitTrades.length > 0 ? explicitTrades : liveTrades;
+      if (targetTrades.length > 0) {
+        await evaluateTradesMilestones(targetTrades);
+      }
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        console.error('Failed 1m batch candle refresh:', e);
+      }
+    } finally {
+      isBatchRefreshingRef.current = false;
+      setIsBatchRefreshingCandles(false);
+    }
+  }, [evaluateTradesMilestones, liveAnalyses, liveTrades, selectedDate, todayIST]);
 
   // Core polling function
-  const pollLiveData = async () => {
-    if (isPolling) return;
+  const pollLiveData = useCallback(async () => {
+    if (isPollingRef.current) return;
+    isPollingRef.current = true;
     setIsPolling(true);
     setErrorMessage(null);
 
@@ -180,6 +277,10 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
 
     try {
       const res = await fetch(`/api/live/poll?url=${encodeURIComponent(pollUrl)}`);
+      if (!res.ok) {
+        setErrorMessage(`HTTP ${res.status} from live poll`);
+        return;
+      }
       const data = await res.json();
 
       setPollCount((prev) => prev + 1);
@@ -205,6 +306,8 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
 
         // Deduplicate trades to prevent repeated rows in live stream
         const uniqueLiveTrades = deduplicateLiveTrades(finalLiveTrades);
+        const signature = computeTradeSignature(uniqueLiveTrades);
+        const hasTradesChanged = signature !== lastEvaluatedSignatureRef.current;
 
         // Check if new trades arrived
         if (uniqueLiveTrades.length > previousTradesCount && previousTradesCount > 0) {
@@ -216,8 +319,11 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         setLiveTrades(uniqueLiveTrades);
         onLiveTradesUpdate?.(uniqueLiveTrades);
 
-        // Refresh 1m candles for pending live instruments and evaluate milestones immediately
-        await batchRefreshPendingCandles(uniqueLiveTrades);
+        // ONLY refresh 1m candles and evaluate if trades changed or initial load!
+        if (hasTradesChanged || liveAnalyses.length === 0) {
+          lastEvaluatedSignatureRef.current = signature;
+          await batchRefreshPendingCandles(uniqueLiveTrades);
+        }
       } else {
         setErrorMessage(data.error || 'Invalid response from live poll');
       }
@@ -225,15 +331,21 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       setIsServerOffline(true);
       setErrorMessage(err instanceof Error ? err.message : 'Network error during live poll');
     } finally {
+      isPollingRef.current = false;
       setIsPolling(false);
     }
-  };
+  }, [batchRefreshPendingCandles, liveAnalyses.length, onLiveTradesUpdate, previousTradesCount, selectedDate, targetUrl, volumeOnly]);
 
-  // Setup interval polling
+  const pollLiveDataRef = useRef(pollLiveData);
+  pollLiveDataRef.current = pollLiveData;
+
+  // Setup interval polling with ref to prevent stale closures
   useEffect(() => {
     if (isLiveActive) {
-      pollLiveData();
-      timerRef.current = setInterval(pollLiveData, pollIntervalSec * 1000);
+      pollLiveDataRef.current();
+      timerRef.current = setInterval(() => {
+        pollLiveDataRef.current();
+      }, pollIntervalSec * 1000);
     } else {
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -247,84 +359,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         timerRef.current = null;
       }
     };
-  }, [isLiveActive, pollIntervalSec, targetUrl]);
-
-  // Initial computation if trades already present
-  useEffect(() => {
-    if (liveTrades.length > 0 && liveAnalyses.length === 0) {
-      batchRefreshPendingCandles(liveTrades);
-    }
-  }, [liveTrades]);
-
-  // Batch refresh 1-minute candles for all instruments with pending M1 or M2 (Requirement 4)
-  const batchRefreshPendingCandles = useCallback(async (explicitTrades?: TradeSignal[]) => {
-    // Find instruments with pending M1 or pending M2 or missing candles
-    const candidateTrades = explicitTrades && explicitTrades.length > 0
-      ? explicitTrades
-      : liveAnalyses.length > 0
-      ? liveAnalyses.map((a) => a.trade)
-      : liveTrades;
-
-    if (candidateTrades.length === 0) return;
-
-    const pendingInstruments = Array.from(
-      new Set(
-        candidateTrades
-          .filter((t) => {
-            const a = liveAnalyses.find(
-              (x) => x.trade.instrument === t.instrument && x.trade.timestamp === t.timestamp
-            );
-            if (!a) return true;
-            return (
-              !a.milestone1 ||
-              !a.milestone2 ||
-              a.milestone2.type === 'PENDING' ||
-              a.candlesFoundForDay === 0 ||
-              a.status === 'NO_CANDLE_DATA' ||
-              a.status === 'NEITHER_HIT_YET'
-            );
-          })
-          .map((t) => t.instrument)
-      )
-    );
-
-    setIsBatchRefreshingCandles(true);
-    try {
-      const today = selectedDate || todayIST;
-      let refreshedCount = 0;
-
-      if (pendingInstruments.length > 0) {
-        const res = await fetch('/api/live/batch-refresh-candles', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            instrumentKeys: pendingInstruments,
-            date: today,
-          }),
-        });
-        const data = await res.json();
-        refreshedCount = data.refreshedCount ?? 0;
-      }
-
-      const timeStr = UpstoxApiService.toISTString(Date.now()).split(' ')[1] || '';
-      setLastBatchCandleRefreshTime(timeStr);
-      setBatchCandleRefreshStatus(
-        refreshedCount > 0
-          ? `Synced 1m candles for ${refreshedCount} instrument(s) at ${timeStr}`
-          : `All 1m candles up-to-date at ${timeStr}`
-      );
-
-      // Re-evaluate milestones with the freshly saved 1m candles!
-      const targetTrades = explicitTrades && explicitTrades.length > 0 ? explicitTrades : liveTrades;
-      if (targetTrades.length > 0) {
-        await evaluateTradesMilestones(targetTrades);
-      }
-    } catch (e) {
-      console.error('Failed 1m batch candle refresh:', e);
-    } finally {
-      setIsBatchRefreshingCandles(false);
-    }
-  }, [liveAnalyses, liveTrades, selectedDate, todayIST, volumeOnly]);
+  }, [isLiveActive, pollIntervalSec]);
 
   // Setup 1-minute (60s) batch request for instruments with pending M1 & M2
   useEffect(() => {

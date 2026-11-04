@@ -1629,10 +1629,13 @@ export class Command2Service {
     // Build 5-minute clubbed groups
     const groups5Min = Command2Service.groupTrades5Min(analyses);
 
-    // Save CSV Report
-    const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
-    const reportPath = `${this.reportsDir}/milestone_analysis_${timestampStr}.csv`;
-    Command2Service.saveAnalysisCsv(analyses, reportPath, { activeFiltersApplied });
+    // Save CSV Report (Only for manual/historical Command 2 runs; never write CSV on live tracker ticks to prevent disk clutter)
+    let reportPath = '';
+    if (!options?.isLive) {
+      const timestampStr = new Date().toISOString().replace(/[:.]/g, '-');
+      reportPath = `${this.reportsDir}/milestone_analysis_${timestampStr}.csv`;
+      Command2Service.saveAnalysisCsv(analyses, reportPath, { activeFiltersApplied });
+    }
 
     return {
       analyses,
