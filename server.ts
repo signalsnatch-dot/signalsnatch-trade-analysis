@@ -447,7 +447,7 @@ async function startServer() {
   app.post('/api/command2/run', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
     try {
-      const { filename, trades: customTrades, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
+      const { filename, trades: customTrades, selectedDates, versionFilters, useAllVersions, volumeTradesOnly, skipCache, isLive } = req.body;
       console.log(`\n[API /command2/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | VolumeOnly: ${volumeTradesOnly !== false} | Live: ${Boolean(isLive)}`);
 
       let tradesToProcess: TradeSignal[] = [];
@@ -464,6 +464,11 @@ async function startServer() {
             tradesToProcess = cachedSignalsData.allTrades;
           }
         }
+      }
+
+      if (Array.isArray(selectedDates) && selectedDates.length > 0) {
+        const dateSet = new Set(selectedDates);
+        tradesToProcess = tradesToProcess.filter((t) => dateSet.has(UpstoxApiService.toISTDate(t.timestamp)));
       }
 
       const rawCount = tradesToProcess.length;

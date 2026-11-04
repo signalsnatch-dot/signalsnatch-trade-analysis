@@ -1686,34 +1686,35 @@ export class Command2Service {
     const filteredTrades = processedInput.filter((t) =>
       Command2Service.matchesVersion(t.version, filters, useAll)
     );
-
-    const rawAnalyses: TradeMilestoneAnalysis[] = [];
     const total = filteredTrades.length;
-
-    const BATCH_SIZE = 50;
+    const rawAnalyses: TradeMilestoneAnalysis[] = [];
+    const BATCH_SIZE = 15;
     const startTimeMs = Date.now();
     console.log(`\n==================================================`);
-    console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in parallel batches of ${BATCH_SIZE}...`);
+    console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in batches of ${BATCH_SIZE}...`);
     console.log(`==================================================`);
 
     for (let i = 0; i < total; i += BATCH_SIZE) {
       const batch = filteredTrades.slice(i, i + BATCH_SIZE);
 
       const batchAnalyses = await Promise.all(
-        batch.map((trade) => this.evaluateTrade(trade, { skipCache }))
+        batch.map(async (trade, j) => {
+          const globalIdx = i + j;
+          onProgress?.({
+            currentIndex: globalIdx + 1,
+            totalTrades: total,
+            currentTradeName: trade.name,
+            currentVersion: trade.version,
+            message: `Analyzing trade ${globalIdx + 1}/${total}: ${trade.name} (${trade.version})...`,
+          });
+          return await this.evaluateTrade(trade, { skipCache });
+        })
       );
+
       rawAnalyses.push(...batchAnalyses);
 
-      onProgress?.({
-        currentIndex: Math.min(i + BATCH_SIZE, total),
-        totalTrades: total,
-        currentTradeName: batch[0]?.name || '',
-        currentVersion: batch[0]?.version || '',
-        message: `Analyzed ${Math.min(i + BATCH_SIZE, total)}/${total} trades...`,
-      });
-
       // Non-blocking yield to event loop after each batch
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       const elapsedSec = ((Date.now() - startTimeMs) / 1000).toFixed(2);
       const heapRamMb = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);

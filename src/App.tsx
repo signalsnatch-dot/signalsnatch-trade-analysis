@@ -113,15 +113,20 @@ export default function App() {
   }) => {
     setIsCmd2Running(true);
     try {
-      let tradesToProcess: TradeSignal[] = Command2Service.deduplicateTrades(trades);
+      const deduplicatedTrades = Command2Service.deduplicateTrades(trades);
+      let volumeFiltered = deduplicatedTrades;
       if (options.volumeTradesOnly !== false) {
-        tradesToProcess = tradesToProcess.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
+        volumeFiltered = deduplicatedTrades.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
       }
+      const filteredOutCount = deduplicatedTrades.length - volumeFiltered.length;
+
+      let dateFiltered = volumeFiltered;
       if (options.selectedDates && options.selectedDates.length > 0) {
         const dateSet = new Set(options.selectedDates);
-        tradesToProcess = tradesToProcess.filter((t) => dateSet.has(UpstoxApiService.toISTDate(t.timestamp)));
+        dateFiltered = volumeFiltered.filter((t) => dateSet.has(UpstoxApiService.toISTDate(t.timestamp)));
       }
-      const filteredTrades = tradesToProcess.filter((t) =>
+
+      const filteredTrades = dateFiltered.filter((t) =>
         Command2Service.matchesVersion(t.version, options.versionFilters, options.useAllVersions)
       );
 
@@ -131,73 +136,74 @@ export default function App() {
         return;
       }
 
-      // Batch size of 50 trades per API call for fast streaming updates
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = 15;
       const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
       const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
+      const incompleteTrades: TradeMilestoneAnalysis[] = [];
 
-      setCmd2Progress({
-        currentBatch: 0,
-        totalBatches,
-        processedTrades: 0,
-        totalTrades: filteredTrades.length,
-      });
+      const activeFiltersApplied = options.versionFilters && options.versionFilters.length > 0
+        ? `Versions: ${options.versionFilters.join(', ')} | VolumeOnly: ${options.volumeTradesOnly !== false ? 'Yes' : 'No'}`
+        : `Default (Ultra, Uber) | VolumeOnly: ${options.volumeTradesOnly !== false ? 'Yes' : 'No'}`;
 
-      const CONCURRENT_BATCHES = 10;
-      for (let i = 0; i < totalBatches; i += CONCURRENT_BATCHES) {
-        const batchIndices = Array.from({ length: Math.min(CONCURRENT_BATCHES, totalBatches - i) }, (_, idx) => i + idx);
-
-        await Promise.all(
-          batchIndices.map(async (b) => {
-            const chunk = filteredTrades.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-
-            try {
-              const res = await fetch('/api/command2/run-batch', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  tradesChunk: chunk,
-                  batchIndex: b,
-                  totalBatches,
-                  versionFilters: options.versionFilters,
-                  useAllVersions: options.useAllVersions,
-                  volumeTradesOnly: options.volumeTradesOnly !== false,
-                }),
-              });
-
-              const data = await res.json();
-              if (Array.isArray(data.evaluatedAnalyses)) {
-                accumulatedAnalyses.push(...data.evaluatedAnalyses);
-              }
-            } catch (err) {
-              console.error(`Error evaluating batch ${b + 1}:`, err);
-            }
-          })
-        );
-
-        const activeFiltersApplied = options.versionFilters.length > 0
-          ? `Versions: ${options.versionFilters.join(', ')}`
-          : `Default (Ultra, Uber)`;
-
-        const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
-        const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
-
-        setCmd2Result({
-          analyses: [...accumulatedAnalyses],
-          incompleteTrades: [],
-          groups5Min,
-          summary,
-        });
+      for (let batchIdx = 0; batchIdx < totalBatches; batchIdx++) {
+        const chunk = filteredTrades.slice(batchIdx * BATCH_SIZE, (batchIdx + 1) * BATCH_SIZE);
+        const processedTrades = Math.min((batchIdx + 1) * BATCH_SIZE, filteredTrades.length);
 
         setCmd2Progress({
-          currentBatch: Math.min(i + CONCURRENT_BATCHES, totalBatches),
+          currentBatch: batchIdx + 1,
           totalBatches,
-          processedTrades: accumulatedAnalyses.length,
+          processedTrades,
           totalTrades: filteredTrades.length,
         });
+
+        const res = await fetch('/api/command2/run-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tradesChunk: chunk,
+            batchIndex: batchIdx,
+            totalBatches,
+            versionFilters: options.versionFilters,
+            useAllVersions: options.useAllVersions,
+            volumeTradesOnly: options.volumeTradesOnly !== false,
+          }),
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text();
+          throw new Error(`Batch ${batchIdx + 1}/${totalBatches} server error (${res.status}): ${errorText.slice(0, 150) || 'Service Unavailable'}`);
+        }
+
+        const data = await res.json();
+        if (data.success && Array.isArray(data.evaluatedAnalyses)) {
+          for (const a of data.evaluatedAnalyses) {
+            if (a.isIncomplete || a.status === 'NO_CANDLE_DATA' || a.candlesFoundForDay === 0) {
+              incompleteTrades.push(a);
+            } else {
+              accumulatedAnalyses.push(a);
+            }
+          }
+
+          const summary = Command2Service.computeSummary(accumulatedAnalyses, {
+            totalVolumeTradesFiltered: filteredOutCount,
+            incompleteTradesCount: incompleteTrades.length,
+            activeFiltersApplied,
+          });
+
+          const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+
+          setCmd2Result({
+            analyses: [...accumulatedAnalyses],
+            incompleteTrades: [...incompleteTrades],
+            groups5Min,
+            summary,
+          });
+        } else if (data.error) {
+          throw new Error(data.error);
+        }
       }
     } catch (err) {
-      console.error('Error running Command 2 in batches:', err);
+      console.error('Error running Command 2:', err);
     } finally {
       setCmd2Progress(null);
       setIsCmd2Running(false);
