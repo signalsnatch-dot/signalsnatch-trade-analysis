@@ -1311,7 +1311,6 @@ export class Command2Service {
       drawdown,
       entryIndicators,
       status,
-      multiDayCandles: fullMultiDayCandles.length > 0 ? fullMultiDayCandles : dayCandles,
       lotSizeUsed: lotSize,
       isVolumeTrade: trade.threshold > 0,
     };

@@ -5,7 +5,7 @@ import { Command1Result } from '../services/command1Service.ts';
 
 interface Command1PanelProps {
   dayAccumulations: DayInstrumentAccumulation[];
-  onRunCommand1: () => Promise<void>;
+  onRunCommand1: (selectedDates?: string[]) => Promise<void>;
   onRunCommand2ForDates?: (dates: string[]) => void;
   isRunning: boolean;
   lastResult: Command1Result | null;
@@ -62,6 +62,15 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
     setSelectedDatesForCmd2([]);
   };
 
+  const handleRunCommand1Click = () => {
+    const dates = selectedDatesForCmd2.length > 0 ? selectedDatesForCmd2 : (activeDay?.date ? [activeDay.date] : []);
+    onRunCommand1(dates);
+  };
+
+  const handleRunCommand1AllClick = () => {
+    onRunCommand1(allDates);
+  };
+
   const handleRunCommand2Click = () => {
     if (!onRunCommand2ForDates) return;
     const datesToRun = selectedDatesForCmd2.length > 0 ? selectedDatesForCmd2 : [activeDay?.date || ''];
@@ -102,7 +111,7 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
           {onOpenMarketDataModal && (
             <button
               onClick={onOpenMarketDataModal}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer"
               title="Upload or download 1-min CSV market data to support expired contracts"
             >
               <Download className="w-4 h-4 text-cyan-400" />
@@ -111,9 +120,10 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
           )}
 
           <button
-            onClick={onRunCommand1}
+            onClick={handleRunCommand1Click}
             disabled={isRunning || !dayAccumulations.length}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-50 text-white font-semibold text-sm shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 disabled:opacity-50 text-white font-semibold text-xs shadow-lg shadow-indigo-600/20 transition-all cursor-pointer"
+            title={`Download candles strictly for ${selectedDatesForCmd2.length > 0 ? selectedDatesForCmd2.join(', ') : (activeDay?.date || 'active date')}`}
           >
             {isRunning ? (
               <>
@@ -123,10 +133,21 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
             ) : (
               <>
                 <Database className="w-4 h-4" />
-                <span>Run Command 1</span>
+                <span>Run Command 1 ({selectedDatesForCmd2.length > 0 ? `${selectedDatesForCmd2.length} Selected` : (activeDay?.date || 'Active Date')})</span>
               </>
             )}
           </button>
+
+          {allDates.length > 1 && (
+            <button
+              onClick={handleRunCommand1AllClick}
+              disabled={isRunning || !dayAccumulations.length}
+              className="flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 font-semibold text-xs border border-slate-700 transition cursor-pointer"
+              title="Download candles for all available dates"
+            >
+              <span>Fetch All {allDates.length} Dates</span>
+            </button>
+          )}
         </div>
       </div>
 

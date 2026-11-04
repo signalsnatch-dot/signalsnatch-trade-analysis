@@ -85,13 +85,13 @@ export default function App() {
   } | null>(null);
 
   // Run Command 1
-  const handleRunCommand1 = async () => {
+  const handleRunCommand1 = async (selectedDates?: string[]) => {
     setIsCmd1Running(true);
     try {
       const res = await fetch('/api/command1/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ selectedDates }),
       });
       const data = await res.json();
       if (data.result) {

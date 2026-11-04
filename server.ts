@@ -27,20 +27,20 @@ const REPORTS_DIR = path.resolve(__dirname, 'reports');
 const REMOTE_SIGNALS_BASE_URL = 'http://13.232.16.180:8000';
 
 // Ensure necessary directories exist
-[SIGNALS_DIR, MARKET_DATA_DIR, REPORTS_DIR].forEach((dir) => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
-
-// Seed default signals if empty
-const defaultSeedPath = path.resolve(__dirname, 'public/assets/aistudio/Paste_October_27__2026_-_8_20PM_b6026899');
-const sampleSignalTarget = path.join(SIGNALS_DIR, 'trades_2026-10-27.json');
-if (!fs.existsSync(sampleSignalTarget) && fs.existsSync(defaultSeedPath)) {
-  try {
-    fs.copyFileSync(defaultSeedPath, sampleSignalTarget);
-  } catch {
-    // Ignore
-  }
+function ensureDirectoriesExist(): void {
+  [SIGNALS_DIR, MARKET_DATA_DIR, REPORTS_DIR].forEach((dir) => {
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  });
 }
+ensureDirectoriesExist();
+
+// Global crash-prevention handlers for EC2 and server stability
+process.on('uncaughtException', (err) => {
+  console.error('[SERVER UNCAUGHT EXCEPTION]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[SERVER UNHANDLED REJECTION]', reason);
+});
 
 const TOKEN_FILE = path.resolve(__dirname, '.upstox_token');
 let activeUpstoxToken: string | undefined = process.env.UPSTOX_ACCESS_TOKEN;
@@ -76,6 +76,7 @@ function loadAllSignals(): { filename: string; trades: TradeSignal[] }[] {
     return cachedSignalsData.files;
   }
 
+  ensureDirectoriesExist();
   const result: { filename: string; trades: TradeSignal[] }[] = [];
   if (!fs.existsSync(SIGNALS_DIR)) return result;
 
@@ -396,8 +397,9 @@ async function startServer() {
   app.post('/api/command1/run', async (req: Request, res: Response) => {
     const reqStartMs = Date.now();
     try {
-      const { filename, trades: customTrades } = req.body;
-      console.log(`[API /command1/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'}`);
+      ensureDirectoriesExist();
+      const { filename, trades: customTrades, selectedDates } = req.body;
+      console.log(`[API /command1/run START] ${new Date().toISOString()} | Source: ${filename ? `'${filename}'` : customTrades ? 'custom input' : 'all cached files'} | SelectedDates: ${Array.isArray(selectedDates) ? selectedDates.join(',') : 'all'}`);
 
       let tradesToProcess: TradeSignal[] = [];
 
@@ -415,9 +417,14 @@ async function startServer() {
         }
       }
 
+      if (Array.isArray(selectedDates) && selectedDates.length > 0) {
+        const dateSet = new Set(selectedDates);
+        tradesToProcess = tradesToProcess.filter((t) => dateSet.has(UpstoxApiService.toISTDate(t.timestamp)));
+      }
+
       if (tradesToProcess.length === 0) {
-        console.warn(`[API /command1/run WARN] No trades available to process`);
-        return res.status(400).json({ error: 'No trades available to process' });
+        console.warn(`[API /command1/run WARN] No trades available to process for selected filter`);
+        return res.status(400).json({ error: 'No trades available to process for selected filter' });
       }
 
       const apiService = getApiService();
