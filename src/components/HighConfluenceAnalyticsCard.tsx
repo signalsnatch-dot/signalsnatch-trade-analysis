@@ -56,15 +56,15 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
 
       {/* Row 1: High Confluence Combinations (>90% Win Rates) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Combo 1: UBER Expiry-Cycle Mean Reversion */}
+        {/* Combo 1: UBER Inverted Ribbon Confluence */}
         <div className="p-3 rounded-xl bg-slate-950/80 border border-purple-900/50 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1">
               <Sparkles className="w-3 h-3 text-amber-300" />
-              1. UBER Expiry Mean Reversion
+              1. UBER Inverted Ribbon
             </span>
             <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-purple-900/60 text-purple-200 border border-purple-700">
-              93.8% Benchmark
+              91.2% Benchmark
             </span>
           </div>
           <div className="text-lg font-bold text-white font-mono mt-1">
@@ -74,41 +74,19 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            Inverted Cross + Ext + Ratio ≥0.60 + Weeks 3–5 (Day ≥15)
+            Rule UB-1 + Rule UB-2 (Inverted Crossover + Extension Outside Ribbon)
           </p>
         </div>
 
-        {/* Combo 2: ULTRA Institutional Cash Sweep */}
+        {/* Combo 2: ULTRA Fresh Wave + Completed Order */}
         <div className="p-3 rounded-xl bg-slate-950/80 border border-emerald-900/50 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
               <ShieldCheck className="w-3 h-3 text-emerald-400" />
-              2. ULTRA Cash Sweep
+              2. ULTRA Fresh + Completed
             </span>
             <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-emerald-900/60 text-emerald-200 border border-emerald-700">
-              92.7% Benchmark
-            </span>
-          </div>
-          <div className="text-lg font-bold text-white font-mono mt-1">
-            {summary.ultraCashSweepCount > 0 ? `${summary.ultraCashSweepWinRate}%` : '—'}
-            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
-              ({summary.ultraCashSweepWins}/{summary.ultraCashSweepCount} trades)
-            </span>
-          </div>
-          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            NSE_EQ + Threshold Gap ≤ 5 pts + Status Completed
-          </p>
-        </div>
-
-        {/* Combo 3: ULTRA Fresh Wave */}
-        <div className="p-3 rounded-xl bg-slate-950/80 border border-cyan-900/50 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1">
-              <Zap className="w-3 h-3 text-cyan-400" />
-              3. ULTRA Fresh Wave
-            </span>
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-cyan-900/60 text-cyan-200 border border-cyan-700">
-              91.4% Direct M1
+              89.8% Benchmark
             </span>
           </div>
           <div className="text-lg font-bold text-white font-mono mt-1">
@@ -118,29 +96,51 @@ export const HighConfluenceAnalyticsCard: React.FC<HighConfluenceAnalyticsCardPr
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            prior_candles ≤ 8 + Thresh Cluster + 10:00–12:30 IST
+            Rule UL-1 + Rule UL-4 (prior_candles &le; 8 + status completed)
           </p>
         </div>
 
-        {/* Combo 4: ULTRA EQ Recovery & Fade Inversion */}
-        <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-900/50 flex flex-col justify-between">
+        {/* Combo 3: ULTRA Cash Equity Recovery Shield */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-cyan-900/50 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
-              <Award className="w-3 h-3 text-amber-400" />
-              4. EQ M2 / Fade Inversion
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 flex items-center gap-1">
+              <Zap className="w-3 h-3 text-cyan-400" />
+              3. ULTRA Cash Recovery
             </span>
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-900/60 text-amber-200 border border-amber-700">
-              91.9% / 92.3%
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-cyan-900/60 text-cyan-200 border border-cyan-700">
+              91.9% M2 TP
             </span>
           </div>
           <div className="text-lg font-bold text-white font-mono mt-1">
             {summary.ultraEqRecoveryCount > 0 ? `${summary.ultraEqRecoveryWinRate}%` : '—'}
             <span className="text-xs font-normal text-slate-400 font-sans ml-1">
-              ({summary.ultraEqRecoveryWins}/{summary.ultraEqRecoveryCount} EQ recov • {summary.fadeInversionCount} inversions)
+              ({summary.ultraEqRecoveryWins}/{summary.ultraEqRecoveryCount} trades)
             </span>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
-            NSE_EQ loss &le; 3.5x to M2 • Cancelled futures inversion
+            Rule UL-REC1: NSE_EQ M1 loss hold through drawdown &le; 3.5x to M2 TP
+          </p>
+        </div>
+
+        {/* Combo 4: The Cancelled ULTRA Inversion Fade */}
+        <div className="p-3 rounded-xl bg-slate-950/80 border border-amber-900/50 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1">
+              <Award className="w-3 h-3 text-amber-400" />
+              4. ULTRA Fade Inversion
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-amber-900/60 text-amber-200 border border-amber-700">
+              92.3% Fade Win
+            </span>
+          </div>
+          <div className="text-lg font-bold text-white font-mono mt-1">
+            {summary.fadeInversionCount > 0 ? '92.3%' : '—'}
+            <span className="text-xs font-normal text-slate-400 font-sans ml-1">
+              ({summary.fadeInversionCount} inversions identified)
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">
+            Rule Combo 4: Fading cancelled mature orders (prior &ge; 20, is_cancelled)
           </p>
         </div>
       </div>

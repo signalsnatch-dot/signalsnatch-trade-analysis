@@ -6,6 +6,7 @@ import { Command1Result } from '../services/command1Service.ts';
 interface Command1PanelProps {
   dayAccumulations: DayInstrumentAccumulation[];
   onRunCommand1: () => Promise<void>;
+  onRunCommand2ForDates?: (dates: string[]) => void;
   isRunning: boolean;
   lastResult: Command1Result | null;
   onSelectInstrumentToView?: (instrument: string, date: string) => void;
@@ -15,6 +16,7 @@ interface Command1PanelProps {
 export const Command1Panel: React.FC<Command1PanelProps> = ({
   dayAccumulations,
   onRunCommand1,
+  onRunCommand2ForDates,
   isRunning,
   lastResult,
   onSelectInstrumentToView,
@@ -24,6 +26,7 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(
     dayAccumulations[0]?.date || ''
   );
+  const [selectedDatesForCmd2, setSelectedDatesForCmd2] = useState<string[]>([]);
 
   const activeDay = dayAccumulations.find((d) => d.date === selectedDate) || dayAccumulations[0];
 
@@ -34,6 +37,36 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
       inst.names.some((n) => n.toLowerCase().includes(s))
     );
   });
+
+  const allDates = dayAccumulations.map((d) => d.date);
+  const effectiveSelectedDates = selectedDatesForCmd2.length > 0 ? selectedDatesForCmd2 : [activeDay?.date || dayAccumulations[0]?.date || ''];
+  const totalTradesInSelectedDates = dayAccumulations
+    .filter((d) => effectiveSelectedDates.includes(d.date))
+    .reduce((sum, d) => sum + d.totalTrades, 0);
+
+  const toggleDateSelection = (date: string) => {
+    setSelectedDatesForCmd2((prev) => {
+      if (prev.includes(date)) {
+        return prev.filter((d) => d !== date);
+      } else {
+        return [...prev, date];
+      }
+    });
+  };
+
+  const handleSelectAllDates = () => {
+    setSelectedDatesForCmd2(allDates);
+  };
+
+  const handleClearAllDates = () => {
+    setSelectedDatesForCmd2([]);
+  };
+
+  const handleRunCommand2Click = () => {
+    if (!onRunCommand2ForDates) return;
+    const datesToRun = selectedDatesForCmd2.length > 0 ? selectedDatesForCmd2 : [activeDay?.date || ''];
+    onRunCommand2ForDates(datesToRun.filter(Boolean));
+  };
 
   const getMarketSegmentBadge = (key: string) => {
     if (key.startsWith('NSE_EQ')) {
@@ -97,26 +130,94 @@ export const Command1Panel: React.FC<Command1PanelProps> = ({
         </div>
       </div>
 
+      {/* Date Filter & Multi-Date Selection for Command 2 Execution */}
+      <div className="bg-slate-900 border border-indigo-900/40 rounded-2xl p-4 shadow-sm space-y-3 bg-gradient-to-r from-slate-900 via-slate-900/90 to-indigo-950/20">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-slate-800/80">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-white flex items-center gap-1.5 uppercase tracking-wider font-mono">
+              <Layers className="w-4 h-4 text-indigo-400" />
+              Select Dates for Command 2 Evaluation:
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] bg-indigo-950 text-indigo-300 border border-indigo-800 font-mono">
+              {selectedDatesForCmd2.length > 0 ? `${selectedDatesForCmd2.length} Selected` : `Viewing ${activeDay?.date || 'Date'}`}
+              {' '}({totalTradesInSelectedDates} trades)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleSelectAllDates}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+            >
+              Select All Dates
+            </button>
+            <button
+              onClick={handleClearAllDates}
+              className="px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+            >
+              Clear Selection
+            </button>
+            {onRunCommand2ForDates && (
+              <button
+                onClick={handleRunCommand2Click}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-semibold text-xs shadow-md shadow-indigo-600/20 transition cursor-pointer"
+                title="Run Command 2 analysis only on selected dates"
+              >
+                <span>Run Command 2 on Selected Dates</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Date Chips with Checkboxes */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 flex-wrap">
+          {dayAccumulations.map((d) => {
+            const isChecked = selectedDatesForCmd2.includes(d.date);
+            const isCurrentView = (selectedDate || dayAccumulations[0]?.date) === d.date;
+
+            return (
+              <div
+                key={d.date}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition border ${
+                  isChecked
+                    ? 'bg-indigo-950/80 border-indigo-500/60 text-white'
+                    : isCurrentView
+                    ? 'bg-slate-800 border-slate-600 text-white'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleDateSelection(d.date)}
+                  className="rounded border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
+                  title={`Include ${d.date} in Command 2 execution`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setSelectedDate(d.date)}
+                  className="cursor-pointer hover:underline"
+                  title="View accumulated instruments for this day below"
+                >
+                  {d.date} <span className="text-[10px] text-slate-400">({d.totalTrades}t)</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Date Switcher & Search Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
         <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto pb-1 sm:pb-0">
           <span className="text-xs text-slate-400 font-medium whitespace-nowrap flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5" />
-            Trading Days:
+            <Search className="w-3.5 h-3.5 text-slate-400" />
+            Active Day Table:
           </span>
-          {dayAccumulations.map((d) => (
-            <button
-              key={d.date}
-              onClick={() => setSelectedDate(d.date)}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                (selectedDate || dayAccumulations[0]?.date) === d.date
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              {d.date} ({d.instruments.length} inst, {d.totalTrades} trades)
-            </button>
-          ))}
+          <span className="text-xs font-bold text-white font-mono bg-slate-800 px-2.5 py-1 rounded-lg">
+            {activeDay?.date || 'Date'} ({filteredInstruments.length} instruments, {activeDay?.totalTrades || 0} trades)
+          </span>
         </div>
 
         <div className="relative w-full sm:w-64">

@@ -216,56 +216,47 @@ export class Command2Service {
 
     // For non-today historical dates, in-memory cache is permanent and fast
     if (!isToday && this.candleMemoryCache.has(cacheKey)) {
-      return this.candleMemoryCache.get(cacheKey)!;
+      const cached = this.candleMemoryCache.get(cacheKey)!;
+      if (cached && cached.length > 0) return cached;
     }
 
     const safeName = Command1Service.safeFilename(instrumentKey);
     const targetDir = `${this.marketDataDir}/${dateStr}`;
     const csvPath = `${targetDir}/${safeName}.csv`;
+    const altCsvPath = `${targetDir}/${instrumentKey.replace(/\|/g, '_')}.csv`;
 
     // 1. Try reading from CSV on disk first (supports local downloaded, synced, or historical candles)
-    if (typeof window === 'undefined' && fs && fs.existsSync && fs.existsSync(csvPath)) {
-      const candles = UpstoxApiService.loadCandlesFromCsv(csvPath);
+    if (typeof window === 'undefined' && fs && fs.existsSync) {
+      const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
+      if (pathToCheck) {
+        const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
+        if (candles && candles.length > 0) {
+          if (!isToday) {
+            this.candleMemoryCache.set(cacheKey, candles);
+          }
+          return candles;
+        }
+      }
+    }
+
+    // 2. Fetch from Upstox API (publicly accessible endpoints for both today and historical dates)
+    try {
+      const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
       if (candles && candles.length > 0) {
+        if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        UpstoxApiService.saveCandlesToCsv(candles, csvPath);
         if (!isToday) {
           this.candleMemoryCache.set(cacheKey, candles);
         }
         return candles;
       }
-    }
-
-    // 2. For today's live date, attempt fetching fresh 1-minute candles from Upstox API
-    if (isToday) {
-      try {
-        const liveCandles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
-        if (liveCandles && liveCandles.length > 0) {
-          if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-          }
-          UpstoxApiService.saveCandlesToCsv(liveCandles, csvPath);
-          return liveCandles;
-        }
-      } catch {
-        // Fallback
-      }
-      return [];
-    }
-
-    // 3. Fallback to API directly for historical dates
-    try {
-      const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
-      if (candles.length > 0) {
-        if (typeof window === 'undefined' && fs && fs.existsSync && !fs.existsSync(targetDir)) {
-          fs.mkdirSync(targetDir, { recursive: true });
-        }
-        UpstoxApiService.saveCandlesToCsv(candles, csvPath);
-      }
-      this.candleMemoryCache.set(cacheKey, candles);
-      return candles;
     } catch {
-      this.candleMemoryCache.set(cacheKey, []);
-      return [];
+      // Continue to empty fallback
     }
+
+    return [];
   }
 
   /**
@@ -837,7 +828,7 @@ export class Command2Service {
     if (!milestone1 || (milestone1 && !milestone2)) {
       try {
         const nextDay = new Date(new Date(dateStr).getTime() + 86400000).toISOString().split('T')[0];
-        consecutiveDailyCandles = await this.apiService.fetchDailyCandles(trade.instrument, nextDay, todayDate);
+        consecutiveDailyCandles = await this.fetchDailyCandlesCached(trade.instrument, nextDay, todayDate);
       } catch {
         consecutiveDailyCandles = [];
       }
@@ -861,8 +852,8 @@ export class Command2Service {
       }
 
       if (targetDayDate) {
-        // Fetch 1-min candles from entry date through targetDayDate!
-        const rangeCandles = await this.apiService.fetchCandleRange(trade.instrument, dateStr, targetDayDate);
+        // Fetch 1-min candles from entry date through targetDayDate using memory cache!
+        const rangeCandles = await this.fetchCandleRangeCached(trade.instrument, dateStr, targetDayDate);
         if (rangeCandles.length > 0) {
           fullMultiDayCandles = augmentCandlesWithIndicators(rangeCandles);
           let rangeEntryIdx = rangeCandles.findIndex((c) => c.timeMs <= tradeEntryMs && tradeEntryMs < c.timeMs + 60_000);
@@ -936,8 +927,8 @@ export class Command2Service {
       }
 
       if (targetM2DayDate) {
-        // Fetch 1m candles through targetM2DayDate
-        const rangeCandles = await this.apiService.fetchCandleRange(trade.instrument, dateStr, targetM2DayDate);
+        // Fetch 1m candles through targetM2DayDate using memory cache!
+        const rangeCandles = await this.fetchCandleRangeCached(trade.instrument, dateStr, targetM2DayDate);
         if (rangeCandles.length > 0) {
           fullMultiDayCandles = augmentCandlesWithIndicators(rangeCandles);
           const multiStartIdx = rangeCandles.findIndex((c) => c.timeMs + 60_000 >= tradeEntryMs);

@@ -18,6 +18,10 @@ export class UpstoxApiService {
     this.accessToken = token;
   }
 
+  hasToken(): boolean {
+    return Boolean(this.accessToken);
+  }
+
   /**
    * Helper to format millisecond timestamp to IST date string YYYY-MM-DD
    */
@@ -149,7 +153,7 @@ export class UpstoxApiService {
     // 3. Try Historical endpoint: /v2/historical-candle/{instrumentKey}/1minute/{to_date}/{from_date}
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -163,7 +167,7 @@ export class UpstoxApiService {
 
     try {
       const url = `${UPSTOX_BASE_URL}/historical-candle/${encodedKey}/1minute/${dateStr}`;
-      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 10000 });
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
       if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
         const parsed = parseCandles(res.data.data.candles);
         if (parsed.length > 0) {
@@ -172,25 +176,24 @@ export class UpstoxApiService {
         }
       }
     } catch {
-      // If historical failed and is not today, try intraday as a backup
-      if (!isToday) {
-        try {
-          const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
-          const res = await axios.get(url, { headers: this.getHeaders(), timeout: 8000 });
-          if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
-            const parsed = parseCandles(res.data.data.candles);
-            if (parsed.length > 0) {
-              UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
-              return parsed;
-            }
-          }
-        } catch {
-          // Ignore
-        }
-      }
+      // Try intraday endpoint as a backup fallback
     }
 
-    // Final fallback: if API requests failed, check if local disk cache exists
+    try {
+      const url = `${UPSTOX_BASE_URL}/historical-candle/intraday/${encodedKey}/1minute`;
+      const res = await axios.get(url, { headers: this.getHeaders(), timeout: 6000 });
+      if (res.data?.data?.candles && Array.isArray(res.data.data.candles) && res.data.data.candles.length > 0) {
+        const parsed = parseCandles(res.data.data.candles);
+        if (parsed.length > 0) {
+          UpstoxApiService.saveCandlesToCsv(parsed, localCsvPath);
+          return parsed;
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    // Final fallback: check if local disk cache exists
     if (hasLocalCache) {
       const cached = UpstoxApiService.loadCandlesFromCsv(localCsvPath);
       if (cached.length > 0) return cached;
@@ -267,7 +270,9 @@ export class UpstoxApiService {
     const allCandles: Candle[] = [];
     const curr = new Date(start);
 
-    while (curr <= end) {
+    let dayCount = 0;
+    while (curr <= end && dayCount < 7) {
+      dayCount++;
       const dStr = curr.toISOString().split('T')[0];
       try {
         const dayCandles = await this.fetch1MinCandles(instrumentKey, dStr);

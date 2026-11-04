@@ -32,7 +32,7 @@ import { SettingsModal } from './components/SettingsModal.tsx';
 import { MarketDataManagerModal } from './components/MarketDataManagerModal.tsx';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'command1' | 'command2' | 'live' | 'signals'>('command2');
+  const [activeTab, setActiveTab] = useState<'overview' | 'command1' | 'command2' | 'live' | 'signals'>('command1');
   const [trades, setTrades] = useState<TradeSignal[]>([]);
   const [availableVersions, setAvailableVersions] = useState<string[]>([]);
   const [availableInstruments, setAvailableInstruments] = useState<string[]>([]);
@@ -109,12 +109,17 @@ export default function App() {
     versionFilters: string[];
     useAllVersions: boolean;
     volumeTradesOnly?: boolean;
+    selectedDates?: string[];
   }) => {
     setIsCmd2Running(true);
     try {
       let tradesToProcess: TradeSignal[] = Command2Service.deduplicateTrades(trades);
       if (options.volumeTradesOnly !== false) {
         tradesToProcess = tradesToProcess.filter((t) => t && t.threshold > 0 && t.bar_type !== 'price');
+      }
+      if (options.selectedDates && options.selectedDates.length > 0) {
+        const dateSet = new Set(options.selectedDates);
+        tradesToProcess = tradesToProcess.filter((t) => dateSet.has(UpstoxApiService.toISTDate(t.timestamp)));
       }
       const filteredTrades = tradesToProcess.filter((t) =>
         Command2Service.matchesVersion(t.version, options.versionFilters, options.useAllVersions)
@@ -189,16 +194,15 @@ export default function App() {
     }
   }, [trades]);
 
-  // Automatically execute Command 2 on initial load once trades are populated
-  useEffect(() => {
-    if (trades.length > 0 && !cmd2Result && !isCmd2Running) {
-      handleRunCommand2({
-        versionFilters: ['ULTRA', 'UBER'],
-        useAllVersions: false,
-        volumeTradesOnly: true,
-      });
-    }
-  }, [trades, cmd2Result, isCmd2Running, handleRunCommand2]);
+  const handleRunCommand2ForDates = useCallback((dates: string[]) => {
+    setActiveTab('command2');
+    handleRunCommand2({
+      versionFilters: ['ULTRA', 'UBER'],
+      useAllVersions: false,
+      volumeTradesOnly: true,
+      selectedDates: dates,
+    });
+  }, [handleRunCommand2]);
 
   const handleLiveTradesUpdate = useCallback((liveTrades: TradeSignal[]) => {
     if (!liveTrades || liveTrades.length === 0) return;
@@ -430,6 +434,7 @@ export default function App() {
             <Command1Panel
               dayAccumulations={dayAccumulations}
               onRunCommand1={handleRunCommand1}
+              onRunCommand2ForDates={handleRunCommand2ForDates}
               isRunning={isCmd1Running}
               lastResult={cmd1Result}
               onOpenMarketDataModal={() => setIsMarketDataModalOpen(true)}

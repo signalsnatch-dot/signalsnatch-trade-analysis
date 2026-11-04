@@ -114,6 +114,10 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
 
   const handleSelectHighConfluenceCombinations = () => {
     const comboIds = [
+      'combo_1_uber_inverted_ribbon',
+      'combo_2_ultra_fresh_completed',
+      'combo_3_ultra_eq_recovery',
+      'combo_4_fade_cancelled_ultra',
       'combo_uber_expiry_cycle_93',
       'combo_ultra_cash_sweep_92',
       'combo_ultra_eq_recovery_91',
@@ -125,7 +129,7 @@ export const EnhancedRulesFilterControls: React.FC<EnhancedRulesFilterControlsPr
   };
 
   const handleSelectInversion = () => {
-    onSelectRuleIds(['combo_ultra_fade_inversion_92']);
+    onSelectRuleIds(['combo_4_fade_cancelled_ultra', 'combo_ultra_fade_inversion_92']);
     onRuleMatchModeChange('ANY');
     if (onNegateRuleIds) onNegateRuleIds([]);
   };
