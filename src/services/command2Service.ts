@@ -393,33 +393,40 @@ export class Command2Service {
     }
   }
 
+  private static saveCacheTimeout: NodeJS.Timeout | null = null;
+
   public static saveEvaluationCache(): void {
     if (typeof window !== 'undefined') return;
-    try {
-      const dir = './market_data';
-      if (fs && fs.existsSync && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      const todayIST = UpstoxApiService.toISTDate(Date.now());
-      const obj: Record<string, TradeMilestoneAnalysis> = {};
-      for (const [k, v] of Command2Service.evaluationCache.entries()) {
-        const tradeDate = v.dateStr || UpstoxApiService.toISTDate(v.trade?.timestamp);
-        if (
-          tradeDate !== todayIST &&
-          !v.isIncomplete &&
-          v.candlesFoundForDay > 0 &&
-          v.status !== 'NO_CANDLE_DATA' &&
-          v.status !== 'NEITHER_HIT_YET' &&
-          v.milestone1 &&
-          v.milestone2?.type !== 'PENDING'
-        ) {
-          obj[k] = v;
+    if (Command2Service.saveCacheTimeout) return;
+
+    Command2Service.saveCacheTimeout = setTimeout(() => {
+      Command2Service.saveCacheTimeout = null;
+      try {
+        const dir = './market_data';
+        if (fs && fs.existsSync && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const todayIST = UpstoxApiService.toISTDate(Date.now());
+        const obj: Record<string, TradeMilestoneAnalysis> = {};
+        for (const [k, v] of Command2Service.evaluationCache.entries()) {
+          const tradeDate = v.dateStr || UpstoxApiService.toISTDate(v.trade?.timestamp);
+          if (
+            tradeDate !== todayIST &&
+            !v.isIncomplete &&
+            v.candlesFoundForDay > 0 &&
+            v.status !== 'NO_CANDLE_DATA' &&
+            v.status !== 'NEITHER_HIT_YET' &&
+            v.milestone1 &&
+            v.milestone2?.type !== 'PENDING'
+          ) {
+            obj[k] = v;
+          }
         }
+        if (fs && fs.writeFile) {
+          fs.writeFile(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8', () => {});
+        }
+      } catch (e) {
+        console.warn('Failed to save Command2 evaluation cache:', e);
       }
-      if (fs && fs.writeFileSync) {
-        fs.writeFileSync(Command2Service.cacheFilePath, JSON.stringify(obj), 'utf-8');
-      }
-    } catch (e) {
-      console.warn('Failed to save Command2 evaluation cache:', e);
-    }
+    }, 2000);
   }
 
   public static getTradeKey(trade: TradeSignal): string {

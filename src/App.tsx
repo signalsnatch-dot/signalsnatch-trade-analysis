@@ -163,20 +163,22 @@ export default function App() {
         if (Array.isArray(data.evaluatedAnalyses)) {
           accumulatedAnalyses.push(...data.evaluatedAnalyses);
 
-          const activeFiltersApplied = options.versionFilters.length > 0
-            ? `Versions: ${options.versionFilters.join(', ')}`
-            : `Default (Ultra, Uber)`;
+          // Update full result state periodically (every 5 batches or on the last batch) to keep UI responsive
+          if (b % 5 === 0 || b === totalBatches - 1) {
+            const activeFiltersApplied = options.versionFilters.length > 0
+              ? `Versions: ${options.versionFilters.join(', ')}`
+              : `Default (Ultra, Uber)`;
 
-          const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
-          const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+            const summary = Command2Service.computeSummary(accumulatedAnalyses, { activeFiltersApplied });
+            const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
 
-          // Update state intermittently so dashboard analytics update live
-          setCmd2Result({
-            analyses: [...accumulatedAnalyses],
-            incompleteTrades: [],
-            groups5Min,
-            summary,
-          });
+            setCmd2Result({
+              analyses: [...accumulatedAnalyses],
+              incompleteTrades: [],
+              groups5Min,
+              summary,
+            });
+          }
 
           setCmd2Progress({
             currentBatch: b + 1,

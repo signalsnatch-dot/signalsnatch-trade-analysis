@@ -70,7 +70,7 @@ export const DAYS_OF_WEEK = [
 interface Command2PanelProps {
   analyses: TradeMilestoneAnalysis[];
   result: Command2Result | null;
-  onRunCommand2: (options: { versionFilters: string[]; useAllVersions: boolean; volumeTradesOnly?: boolean }) => Promise<void>;
+  onRunCommand2: (options: { versionFilters: string[]; useAllVersions: boolean; volumeTradesOnly?: boolean; selectedDates?: string[] }) => Promise<void>;
   isRunning: boolean;
   availableVersions: string[];
   totalLoadedTrades: number;
@@ -178,6 +178,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
       versionFilters: filters.length > 0 ? filters : ['ULTRA', 'UBER'],
       useAllVersions: useAll || filters.length === 0,
       volumeTradesOnly: onlyVolumeTrades,
+      selectedDates: selectedDates.length > 0 ? selectedDates : undefined,
     });
   };
 
@@ -927,6 +928,7 @@ export const Command2Panel: React.FC<Command2PanelProps> = ({
                     versionFilters: versionPreset === 'ultra_uber' ? ['ULTRA', 'UBER'] : versionPreset === 'meta_thursday' ? ['META_THURSDAY'] : versionPreset === 'ultra' ? ['ULTRA'] : versionPreset === 'uber' ? ['UBER'] : [],
                     useAllVersions: versionPreset === 'all',
                     volumeTradesOnly: e.target.checked,
+                    selectedDates: selectedDates.length > 0 ? selectedDates : undefined,
                   });
                 }}
                 className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-0 bg-slate-900 border-slate-700"
