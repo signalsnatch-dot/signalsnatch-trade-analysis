@@ -136,8 +136,8 @@ export default function App() {
         return;
       }
 
-      const BATCH_SIZE = 20;
-      const MAX_CONCURRENT_BATCHES = 4;
+      const BATCH_SIZE = 15;
+      const MAX_CONCURRENT_BATCHES = 2;
       const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
       const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
       const incompleteTrades: TradeMilestoneAnalysis[] = [];

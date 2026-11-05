@@ -9,7 +9,7 @@ module.exports = {
       node_args: "--max-old-space-size=1536",
       env: {
         NODE_ENV: "production",
-        PORT: 3000
+        PORT: 8080
       },
       max_memory_restart: "1700M",
       error_file: "./logs/pm2-error.log",

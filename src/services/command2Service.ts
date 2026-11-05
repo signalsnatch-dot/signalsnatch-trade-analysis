@@ -1686,7 +1686,7 @@ export class Command2Service {
   }
 
   /**
-   * Evaluate a single chunk/batch of trade signals in parallel using cached candles
+   * Evaluate a single chunk/batch of trade signals with event-loop yielding for smooth non-blocking execution
    */
   async evaluateTradesBatch(
     tradesBatch: TradeSignal[],
@@ -1694,9 +1694,16 @@ export class Command2Service {
   ): Promise<TradeMilestoneAnalysis[]> {
     const skipCache = options?.skipCache || options?.isLive;
     const validBatch = tradesBatch.filter(Boolean);
-    return await Promise.all(
-      validBatch.map((trade) => this.evaluateTrade(trade, { skipCache }))
-    );
+    const results: TradeMilestoneAnalysis[] = [];
+
+    for (const trade of validBatch) {
+      const analysis = await this.evaluateTrade(trade, { skipCache });
+      results.push(analysis);
+      // Yield to Node event loop between trade evaluations
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    return results;
   }
 
   /**

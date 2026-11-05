@@ -16,17 +16,18 @@ fi
 
 echo "=== 2. System Resource Limits & Node Environment ==="
 export NODE_OPTIONS="--max-old-space-size=1536"
+export PORT=8080
 
-echo "=== 3. Installing dependencies & building frontend ==="
-npm install
+echo "=== 3. Installing dependencies with legacy peer deps & building frontend ==="
+npm install --legacy-peer-deps
 npm run build
 
-echo "=== 4. Starting Server via PM2 or Direct Node ==="
+echo "=== 4. Starting Server on Port 8080 via PM2 or Direct Node ==="
 if command -v pm2 &> /dev/null; then
   pm2 start ecosystem.config.cjs || pm2 restart signalsnatch-app
   pm2 save
-  echo "Application started with PM2! View logs with: pm2 logs signalsnatch-app"
+  echo "Application started on port 8080 with PM2! View logs with: pm2 logs signalsnatch-app"
 else
   echo "Starting application with npm run start:ec2..."
-  npm run start:ec2
+  PORT=8080 npm run start:ec2
 fi
