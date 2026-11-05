@@ -9,6 +9,7 @@ module.exports = {
       node_args: "--max-old-space-size=1536",
       env: {
         NODE_ENV: "production",
+        IS_EC2: "true",
         PORT: 8080
       },
       max_memory_restart: "1700M",

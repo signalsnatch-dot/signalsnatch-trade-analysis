@@ -136,8 +136,8 @@ export default function App() {
         return;
       }
 
-      const BATCH_SIZE = 15;
-      const MAX_CONCURRENT_BATCHES = 2;
+      const BATCH_SIZE = 50;
+      const MAX_CONCURRENT_BATCHES = 4;
       const totalBatches = Math.ceil(filteredTrades.length / BATCH_SIZE);
       const accumulatedAnalyses: TradeMilestoneAnalysis[] = [];
       const incompleteTrades: TradeMilestoneAnalysis[] = [];
@@ -184,6 +184,7 @@ export default function App() {
           completedBatchesCount++;
           totalProcessedCount += chunk.length;
 
+          // Smooth real-time progress update on every batch
           setCmd2Progress({
             currentBatch: completedBatchesCount,
             totalBatches,
@@ -191,20 +192,24 @@ export default function App() {
             totalTrades: filteredTrades.length,
           });
 
-          const summary = Command2Service.computeSummary(accumulatedAnalyses, {
-            totalVolumeTradesFiltered: filteredOutCount,
-            incompleteTradesCount: incompleteTrades.length,
-            activeFiltersApplied,
-          });
+          // Throttle heavy table & grouping re-renders to every 4 batches (or final) to keep browser UI fast
+          const isFinal = completedBatchesCount === totalBatches;
+          if (isFinal || completedBatchesCount % 4 === 0) {
+            const summary = Command2Service.computeSummary(accumulatedAnalyses, {
+              totalVolumeTradesFiltered: filteredOutCount,
+              incompleteTradesCount: incompleteTrades.length,
+              activeFiltersApplied,
+            });
 
-          const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+            const groups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
 
-          setCmd2Result({
-            analyses: [...accumulatedAnalyses],
-            incompleteTrades: [...incompleteTrades],
-            groups5Min,
-            summary,
-          });
+            setCmd2Result({
+              analyses: [...accumulatedAnalyses],
+              incompleteTrades: [...incompleteTrades],
+              groups5Min,
+              summary,
+            });
+          }
         } else if (data.error) {
           throw new Error(data.error);
         }
@@ -224,6 +229,20 @@ export default function App() {
       const workerCount = Math.min(MAX_CONCURRENT_BATCHES, totalBatches);
       const workers = Array.from({ length: workerCount }, () => runWorker());
       await Promise.all(workers);
+
+      // Final synchronization guarantee to render complete results
+      const finalSummary = Command2Service.computeSummary(accumulatedAnalyses, {
+        totalVolumeTradesFiltered: filteredOutCount,
+        incompleteTradesCount: incompleteTrades.length,
+        activeFiltersApplied,
+      });
+      const finalGroups5Min = Command2Service.groupTrades5Min(accumulatedAnalyses);
+      setCmd2Result({
+        analyses: [...accumulatedAnalyses],
+        incompleteTrades: [...incompleteTrades],
+        groups5Min: finalGroups5Min,
+        summary: finalSummary,
+      });
     } catch (err) {
       console.error('Error running Command 2:', err);
     } finally {

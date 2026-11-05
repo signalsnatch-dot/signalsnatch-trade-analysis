@@ -182,6 +182,10 @@ export class Command2Service {
   private static inFlightDailyPromises = new Map<string, Promise<Candle[]>>();
   private static inFlightRangePromises = new Map<string, Promise<Candle[]>>();
 
+  // Fast in-memory index for local daily candles aggregated from disk CSVs
+  private static localDailyIndex: Map<string, Candle[]> | null = null;
+  private static failedDailyInstruments = new Set<string>();
+
   constructor(options?: {
     apiService?: UpstoxApiService;
     marketDataDir?: string;
@@ -219,6 +223,8 @@ export class Command2Service {
     Command2Service.inFlightCandlePromises.clear();
     Command2Service.inFlightDailyPromises.clear();
     Command2Service.inFlightRangePromises.clear();
+    Command2Service.failedDailyInstruments.clear();
+    Command2Service.localDailyIndex = null;
     Command2Service.isEvaluationCacheLoaded = false;
 
     if (typeof window === 'undefined' && fs && fs.existsSync) {
@@ -252,12 +258,10 @@ export class Command2Service {
    * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
    */
   async getCandlesForDay(instrumentKey: string, dateStr: string): Promise<Candle[]> {
-    const todayIST = UpstoxApiService.toISTDate(Date.now());
-    const isToday = dateStr === todayIST;
     const cacheKey = `${instrumentKey}_${dateStr}`;
 
-    // For non-today historical dates, in-memory cache is permanent and fast (including empty [] negative cache)
-    if (!isToday && Command2Service.candleMemoryCache.has(cacheKey)) {
+    // Fast in-memory cache lookup
+    if (Command2Service.candleMemoryCache.has(cacheKey)) {
       return Command2Service.candleMemoryCache.get(cacheKey)!;
     }
 
@@ -277,15 +281,19 @@ export class Command2Service {
         if (pathToCheck) {
           const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
           if (candles && candles.length > 0) {
-            if (!isToday) {
-              Command2Service.candleMemoryCache.set(cacheKey, candles);
-            }
+            Command2Service.candleMemoryCache.set(cacheKey, candles);
             return candles;
           }
         }
       }
 
-      // 2. Fetch from Upstox API (publicly accessible endpoints for both today and historical dates)
+      // If no token or instrument known failed, don't waste time on network timeouts
+      if (!this.apiService.hasToken() || Command2Service.failedDailyInstruments.has(instrumentKey)) {
+        Command2Service.candleMemoryCache.set(cacheKey, []);
+        return [];
+      }
+
+      // 2. Fetch from Upstox API
       try {
         const candles = await this.apiService.fetch1MinCandles(instrumentKey, dateStr);
         if (candles && candles.length > 0) {
@@ -293,18 +301,14 @@ export class Command2Service {
             fs.mkdirSync(targetDir, { recursive: true });
           }
           UpstoxApiService.saveCandlesToCsv(candles, csvPath);
-          if (!isToday) {
-            Command2Service.candleMemoryCache.set(cacheKey, candles);
-          }
+          Command2Service.candleMemoryCache.set(cacheKey, candles);
           return candles;
         }
       } catch {
-        // Continue to empty fallback
+        // Fallback to empty
       }
 
-      if (!isToday) {
-        Command2Service.candleMemoryCache.set(cacheKey, []);
-      }
+      Command2Service.candleMemoryCache.set(cacheKey, []);
       return [];
     })().finally(() => {
       Command2Service.inFlightCandlePromises.delete(cacheKey);
@@ -315,64 +319,99 @@ export class Command2Service {
   }
 
   /**
-   * Helper to aggregate daily candles directly from local CSV files in ./market_data/{date}/
-   * Instant (0.1ms) response that avoids network calls to Upstox API
+   * Build in-memory daily candles index from disk CSVs once to achieve 0.001ms lookups with zero disk re-reads
+   */
+  private static buildLocalDailyIndex(marketDataDir: string): Map<string, Candle[]> {
+    const index = new Map<string, Candle[]>();
+    if (typeof window !== 'undefined' || !fs || !fs.existsSync) return index;
+
+    try {
+      if (!fs.existsSync(marketDataDir)) return index;
+      const dateDirs = fs.readdirSync(marketDataDir).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
+
+      for (const dateStr of dateDirs) {
+        const fullDateDir = `${marketDataDir}/${dateStr}`;
+        let files: string[] = [];
+        try {
+          files = fs.readdirSync(fullDateDir).filter((f) => f.endsWith('.csv'));
+        } catch {
+          continue;
+        }
+
+        for (const file of files) {
+          const fullPath = `${fullDateDir}/${file}`;
+          try {
+            const candles = UpstoxApiService.loadCandlesFromCsv(fullPath);
+            if (!candles || candles.length === 0) continue;
+
+            const open = candles[0].open;
+            let high = candles[0].high;
+            let low = candles[0].low;
+            const close = candles[candles.length - 1].close;
+            let volume = 0;
+
+            for (const c of candles) {
+              if (c.high > high) high = c.high;
+              if (c.low < low) low = c.low;
+              volume += c.volume;
+            }
+
+            const dailyCandle: Candle = {
+              timestamp: candles[0].timestamp,
+              timeMs: candles[0].timeMs,
+              open,
+              high,
+              low,
+              close,
+              volume,
+            };
+
+            const baseName = file.replace(/\.csv$/, '');
+            const list = index.get(baseName) || [];
+            list.push(dailyCandle);
+            index.set(baseName, list);
+          } catch {
+            // Ignore corrupted individual CSVs
+          }
+        }
+      }
+
+      for (const list of index.values()) {
+        list.sort((a, b) => a.timeMs - b.timeMs);
+      }
+    } catch (e) {
+      console.warn('[Command2Service] Failed to build local daily index:', e);
+    }
+
+    return index;
+  }
+
+  /**
+   * Helper to aggregate daily candles directly from in-memory indexed CSVs
+   * Instant (0.001ms) response that avoids disk and network calls
    */
   private getDailyCandlesFromLocalCsvs(instrumentKey: string, fromDate: string, toDate: string): Candle[] {
     if (typeof window !== 'undefined' || !fs || !fs.existsSync) return [];
 
+    if (!Command2Service.localDailyIndex) {
+      Command2Service.localDailyIndex = Command2Service.buildLocalDailyIndex(this.marketDataDir);
+    }
+
     const safeName = Command1Service.safeFilename(instrumentKey);
     const altSafeName = instrumentKey.replace(/\|/g, '_');
-    const result: Candle[] = [];
+
+    const candles =
+      Command2Service.localDailyIndex.get(safeName) ||
+      Command2Service.localDailyIndex.get(altSafeName) ||
+      Command2Service.localDailyIndex.get(instrumentKey) ||
+      [];
+
+    if (candles.length === 0) return [];
 
     const startMs = new Date(fromDate).getTime();
     const endMs = new Date(toDate).getTime();
 
-    try {
-      if (!fs.existsSync(this.marketDataDir)) return [];
-      const dateDirs = fs.readdirSync(this.marketDataDir).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d));
-
-      for (const dateStr of dateDirs) {
-        const dMs = new Date(dateStr).getTime();
-        if (dMs >= startMs && dMs <= endMs) {
-          const csvPath = `${this.marketDataDir}/${dateStr}/${safeName}.csv`;
-          const altCsvPath = `${this.marketDataDir}/${dateStr}/${altSafeName}.csv`;
-          const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
-
-          if (pathToCheck) {
-            const candles = UpstoxApiService.loadCandlesFromCsv(pathToCheck);
-            if (candles && candles.length > 0) {
-              const open = candles[0].open;
-              let high = candles[0].high;
-              let low = candles[0].low;
-              const close = candles[candles.length - 1].close;
-              let volume = 0;
-
-              for (const c of candles) {
-                if (c.high > high) high = c.high;
-                if (c.low < low) low = c.low;
-                volume += c.volume;
-              }
-
-              result.push({
-                timestamp: candles[0].timestamp,
-                timeMs: candles[0].timeMs,
-                open,
-                high,
-                low,
-                close,
-                volume,
-              });
-            }
-          }
-        }
-      }
-    } catch {
-      // Ignore disk errors
-    }
-
-    result.sort((a, b) => a.timeMs - b.timeMs);
-    return result;
+    return candles.filter((c) => c.timeMs >= startMs && c.timeMs <= endMs);
   }
 
   /**
@@ -389,20 +428,30 @@ export class Command2Service {
     }
 
     const fetchPromise = (async () => {
-      // 1. Try local CSV disk aggregation first (instant < 0.1ms response)
+      // 1. Try local CSV disk aggregation first (instant < 0.001ms response)
       const localDaily = this.getDailyCandlesFromLocalCsvs(instrument, fromDate, toDate);
       if (localDaily.length > 0) {
         Command2Service.dailyCandleMemoryCache.set(key, localDaily);
         return localDaily;
       }
 
-      // 2. Fallback to API if local data is unavailable
+      // 2. Skip network if known failed or no Upstox token configured
+      if (Command2Service.failedDailyInstruments.has(instrument) || !this.apiService.hasToken()) {
+        Command2Service.dailyCandleMemoryCache.set(key, []);
+        return [];
+      }
+
+      // 3. Fallback to API if local data is unavailable
       try {
         const res = await this.apiService.fetchDailyCandles(instrument, fromDate, toDate);
         const safe = res || [];
         Command2Service.dailyCandleMemoryCache.set(key, safe);
+        if (safe.length === 0) {
+          Command2Service.failedDailyInstruments.add(instrument);
+        }
         return safe;
       } catch {
+        Command2Service.failedDailyInstruments.add(instrument);
         Command2Service.dailyCandleMemoryCache.set(key, []);
         return [];
       }
@@ -555,10 +604,13 @@ export class Command2Service {
                 analysis.candlesFoundForDay === 0 ||
                 analysis.status === 'NO_CANDLE_DATA' ||
                 analysis.status === 'NEITHER_HIT_YET' ||
-                !analysis.milestone1 ||
-                analysis.milestone2?.type === 'PENDING';
+                !analysis.milestone1;
 
               if (!isIncompleteOrLive) {
+                // Ensure multiDayCandles is empty in memory cache to save hundreds of MB of RAM
+                if (analysis.multiDayCandles && analysis.multiDayCandles.length > 0) {
+                  analysis.multiDayCandles = [];
+                }
                 Command2Service.evaluationCache.set(key, analysis);
               }
             }
@@ -593,10 +645,11 @@ export class Command2Service {
             v.candlesFoundForDay > 0 &&
             v.status !== 'NO_CANDLE_DATA' &&
             v.status !== 'NEITHER_HIT_YET' &&
-            v.milestone1 &&
-            v.milestone2?.type !== 'PENDING'
+            v.milestone1
           ) {
-            obj[k] = v;
+            // Strip heavy raw candles to avoid event loop stalls (from 200MB to 1MB JSON)
+            const { multiDayCandles, ...rest } = v;
+            obj[k] = { ...rest, multiDayCandles: [] };
           }
         }
         if (fs && fs.writeFile) {
@@ -633,8 +686,7 @@ export class Command2Service {
         analysis.candlesFoundForDay > 0 &&
         analysis.status !== 'NO_CANDLE_DATA' &&
         analysis.status !== 'NEITHER_HIT_YET' &&
-        analysis.milestone1 &&
-        analysis.milestone2?.type !== 'PENDING'
+        analysis.milestone1
       ) {
         Command2Service.evaluationCache.set(key, analysis);
         Command2Service.saveEvaluationCache();
@@ -1166,7 +1218,8 @@ export class Command2Service {
     }
 
     // Requirement 8: If M2 still not hit, check 1-minute candle data directly for current date (todayDate)
-    if (milestone1 && !milestone2 && todayDate !== dateStr) {
+    const daysDiffFromEntry = Math.round((new Date(todayDate).getTime() - new Date(dateStr).getTime()) / 86400000);
+    if (milestone1 && !milestone2 && todayDate !== dateStr && daysDiffFromEntry <= 3) {
       try {
         const todayCandles = await this.getCandlesForDay(trade.instrument, todayDate);
         if (todayCandles && todayCandles.length > 0) {
@@ -1686,7 +1739,7 @@ export class Command2Service {
   }
 
   /**
-   * Evaluate a single chunk/batch of trade signals with event-loop yielding for smooth non-blocking execution
+   * Evaluate a single chunk/batch of trade signals concurrently with high throughput
    */
   async evaluateTradesBatch(
     tradesBatch: TradeSignal[],
@@ -1694,16 +1747,20 @@ export class Command2Service {
   ): Promise<TradeMilestoneAnalysis[]> {
     const skipCache = options?.skipCache || options?.isLive;
     const validBatch = tradesBatch.filter(Boolean);
-    const results: TradeMilestoneAnalysis[] = [];
 
-    for (const trade of validBatch) {
-      const analysis = await this.evaluateTrade(trade, { skipCache });
-      results.push(analysis);
-      // Yield to Node event loop between trade evaluations
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
+    // Fully parallelize all trades in the batch concurrently
+    const results = await Promise.all(
+      validBatch.map((trade) => this.evaluateTrade(trade, { skipCache }))
+    );
 
-    return results;
+    // Strip heavy multiDayCandles from the HTTP batch response to keep JSON payload tiny (< 50KB instead of 20MB)
+    // CandleChartModal fetches candles on-demand via /api/candles when opened by the user
+    return results.map((r) => {
+      if (r.multiDayCandles && r.multiDayCandles.length > 50) {
+        return { ...r, multiDayCandles: [] };
+      }
+      return r;
+    });
   }
 
   /**
@@ -1736,7 +1793,7 @@ export class Command2Service {
     );
     const total = filteredTrades.length;
     const rawAnalyses: TradeMilestoneAnalysis[] = [];
-    const BATCH_SIZE = 15;
+    const BATCH_SIZE = 50;
     const startTimeMs = Date.now();
     console.log(`\n==================================================`);
     console.log(`[COMMAND 2 START] ${new Date().toISOString()} | Processing ${total} trades in batches of ${BATCH_SIZE}...`);

@@ -17,11 +17,12 @@ import { exec } from 'child_process';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Support CLI --port argument or process.env.PORT or default to port 3000
+// Support CLI --port argument or process.env.PORT in production/EC2, defaulting to port 3000 for AI Studio dev server
 const portArgIdx = process.argv.indexOf('--port');
 const portFromArg = portArgIdx !== -1 && process.argv[portArgIdx + 1] ? parseInt(process.argv[portArgIdx + 1], 10) : NaN;
 const envPort = process.env.PORT ? parseInt(process.env.PORT, 10) : NaN;
-const PORT = !isNaN(portFromArg) ? portFromArg : (!isNaN(envPort) ? envPort : 3000);
+const isProdOrEc2 = process.env.NODE_ENV === 'production' || process.env.PORT === '8080' || process.env.IS_EC2 === 'true';
+const PORT = !isNaN(portFromArg) ? portFromArg : (isProdOrEc2 && !isNaN(envPort) ? envPort : 3000);
 const SIGNALS_DIR = path.resolve(__dirname, 'signals');
 const MARKET_DATA_DIR = path.resolve(__dirname, 'market_data');
 const REPORTS_DIR = path.resolve(__dirname, 'reports');
