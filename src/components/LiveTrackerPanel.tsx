@@ -106,6 +106,9 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
     return deduplicateLiveTrades(initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST));
   });
   const [liveAnalyses, setLiveAnalyses] = useState<TradeMilestoneAnalysis[]>([]);
+  const liveAnalysesRef = useRef<TradeMilestoneAnalysis[]>([]);
+  liveAnalysesRef.current = liveAnalyses;
+
   const [previousTradesCount, setPreviousTradesCount] = useState(() => {
     return deduplicateLiveTrades(initialTrades.filter((t) => UpstoxApiService.toISTDate(t.timestamp) === todayIST)).length;
   });
@@ -157,8 +160,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           trades: deduplicateLiveTrades(tradesToAnalyze),
-          versionFilters: ['ULTRA', 'UBER', 'META_THURSDAY'],
-          useAllVersions: false,
+          useAllVersions: true,
           volumeTradesOnly: volumeOnly,
           skipCache: true,
           isLive: true,
@@ -195,17 +197,18 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
     try {
       const candidateTrades = explicitTrades && explicitTrades.length > 0
         ? explicitTrades
-        : liveAnalyses.length > 0
-        ? liveAnalyses.map((a) => a.trade)
+        : liveAnalysesRef.current.length > 0
+        ? liveAnalysesRef.current.map((a) => a.trade)
         : liveTrades;
 
       if (candidateTrades.length === 0) return;
 
+      const currentAnalyses = liveAnalysesRef.current;
       const pendingInstruments = Array.from(
         new Set(
           candidateTrades
             .filter((t) => {
-              const a = liveAnalyses.find(
+              const a = currentAnalyses.find(
                 (x) => x.trade.instrument === t.instrument && x.trade.timestamp === t.timestamp
               );
               if (!a) return true;
@@ -319,10 +322,25 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
         setLiveTrades(uniqueLiveTrades);
         onLiveTradesUpdate?.(uniqueLiveTrades);
 
-        // ONLY refresh 1m candles and evaluate if trades changed or initial load!
-        if (hasTradesChanged || liveAnalyses.length === 0) {
+        // If new trades arrived or initial load, do full batch refresh and evaluation
+        const currentAnalyses = liveAnalysesRef.current;
+        const hasPendingTrades =
+          currentAnalyses.length === 0 ||
+          currentAnalyses.some(
+            (a) =>
+              !a.milestone1 ||
+              a.status === 'NEITHER_HIT_YET' ||
+              !a.milestone2 ||
+              a.milestone2.type === 'PENDING' ||
+              a.status === 'NO_CANDLE_DATA'
+          );
+
+        if (hasTradesChanged || currentAnalyses.length === 0) {
           lastEvaluatedSignatureRef.current = signature;
           await batchRefreshPendingCandles(uniqueLiveTrades);
+        } else if (hasPendingTrades && uniqueLiveTrades.length > 0) {
+          // Re-evaluate pending trades against latest live candles from disk on each live poll
+          await evaluateTradesMilestones(uniqueLiveTrades);
         }
       } else {
         setErrorMessage(data.error || 'Invalid response from live poll');
@@ -334,7 +352,7 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
       isPollingRef.current = false;
       setIsPolling(false);
     }
-  }, [batchRefreshPendingCandles, liveAnalyses.length, onLiveTradesUpdate, previousTradesCount, selectedDate, targetUrl, volumeOnly]);
+  }, [batchRefreshPendingCandles, evaluateTradesMilestones, onLiveTradesUpdate, previousTradesCount, selectedDate, targetUrl, volumeOnly]);
 
   const pollLiveDataRef = useRef(pollLiveData);
   pollLiveDataRef.current = pollLiveData;
@@ -361,12 +379,12 @@ export const LiveTrackerPanel: React.FC<LiveTrackerPanelProps> = ({
     };
   }, [isLiveActive, pollIntervalSec]);
 
-  // Setup 1-minute (60s) batch request for instruments with pending M1 & M2
+  // Setup 30s batch candle sync for instruments with pending M1 & M2
   useEffect(() => {
     if (isLiveActive) {
       batchCandleTimerRef.current = setInterval(() => {
         batchRefreshPendingCandles();
-      }, 60000);
+      }, 30000);
     } else {
       if (batchCandleTimerRef.current) {
         clearInterval(batchCandleTimerRef.current);

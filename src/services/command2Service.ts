@@ -255,13 +255,27 @@ export class Command2Service {
   }
 
   /**
-   * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
+   * Update or set in-memory candle cache for a specific instrument and date
    */
-  async getCandlesForDay(instrumentKey: string, dateStr: string): Promise<Candle[]> {
+  public static updateCandleMemoryCache(instrumentKey: string, dateStr: string, candles: Candle[]): void {
+    const cacheKey = `${instrumentKey}_${dateStr}`;
+    Command2Service.candleMemoryCache.set(cacheKey, candles);
+  }
+
+  /**
+   * Load 1-minute candles for an instrument on a given date (cached in memory for instant subsequent evaluations)
+   * For historical dates, memory cache is permanent for lightning-fast batch runs.
+   * For today's date (live tracking), checks disk CSV to pick up the latest live minutes.
+   */
+  async getCandlesForDay(instrumentKey: string, dateStr: string, options?: { forceRefresh?: boolean }): Promise<Candle[]> {
+    const todayIST = UpstoxApiService.toISTDate(Date.now());
+    const isToday = dateStr === todayIST;
     const cacheKey = `${instrumentKey}_${dateStr}`;
 
-    // Fast in-memory cache lookup
-    if (Command2Service.candleMemoryCache.has(cacheKey)) {
+    // Fast in-memory cache lookup:
+    // ONLY use memory cache directly for HISTORICAL dates (yesterday and earlier).
+    // For today (the live trading day), candles grow every minute, so we must check disk CSV for latest live data.
+    if (!isToday && !options?.forceRefresh && Command2Service.candleMemoryCache.has(cacheKey)) {
       return Command2Service.candleMemoryCache.get(cacheKey)!;
     }
 
@@ -275,7 +289,7 @@ export class Command2Service {
       const csvPath = `${targetDir}/${safeName}.csv`;
       const altCsvPath = `${targetDir}/${instrumentKey.replace(/\|/g, '_')}.csv`;
 
-      // 1. Try reading from CSV on disk first (supports local downloaded, synced, or historical candles)
+      // 1. Try reading from CSV on disk first (supports local downloaded, synced, or live candles)
       if (typeof window === 'undefined' && fs && fs.existsSync) {
         const pathToCheck = fs.existsSync(csvPath) ? csvPath : fs.existsSync(altCsvPath) ? altCsvPath : null;
         if (pathToCheck) {
@@ -289,8 +303,8 @@ export class Command2Service {
 
       // If no token or instrument known failed, don't waste time on network timeouts
       if (!this.apiService.hasToken() || Command2Service.failedDailyInstruments.has(instrumentKey)) {
-        Command2Service.candleMemoryCache.set(cacheKey, []);
-        return [];
+        const cached = Command2Service.candleMemoryCache.get(cacheKey);
+        return cached || [];
       }
 
       // 2. Fetch from Upstox API
@@ -305,11 +319,11 @@ export class Command2Service {
           return candles;
         }
       } catch {
-        // Fallback to empty
+        // Fallback to empty or existing cached
       }
 
-      Command2Service.candleMemoryCache.set(cacheKey, []);
-      return [];
+      const cached = Command2Service.candleMemoryCache.get(cacheKey);
+      return cached || [];
     })().finally(() => {
       Command2Service.inFlightCandlePromises.delete(cacheKey);
     });

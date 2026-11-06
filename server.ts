@@ -837,9 +837,9 @@ async function startServer() {
               if (candles.length > 0) {
                 const safeName = Command1Service.safeFilename(key);
                 const targetSubdir = path.join(MARKET_DATA_DIR, targetDate);
-                if (!fs.existsSync(targetSubdir)) fs.mkdirSync(targetSubdir, { recursive: true });
                 const csvPath = path.join(targetSubdir, `${safeName}.csv`);
                 UpstoxApiService.saveCandlesToCsv(candles, csvPath);
+                Command2Service.updateCandleMemoryCache(key, targetDate, candles);
                 refreshedCount++;
               }
             } catch {
